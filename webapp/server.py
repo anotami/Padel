@@ -8,11 +8,13 @@ Flujo de páginas:
   /video/<id>/calibrate  -> Fase 1: click en las 4 esquinas de la pista
   /video/<id>/results    -> Fase 4: video anotado, heatmaps, descargas
   /video/<id>/label      -> etiquetado manual de golpes (+ los auto-detectados)
+  /video/<id>/points     -> marcado de inicio/fin de cada punto y ganador por pareja
 """
 
 from __future__ import annotations
 
 import datetime
+import json
 import re
 from pathlib import Path
 
@@ -22,6 +24,9 @@ from werkzeug.utils import secure_filename
 from padel_analytics import config, storage, video_io
 from padel_analytics.calibration import CourtCalibrator
 from padel_analytics.shot_detection import ShotLabelStore, SHOT_TYPES
+from padel_analytics.points import PointLabelStore
+
+DEFAULT_TEAM_NAMES = ["pareja_A", "pareja_B"]
 
 from . import jobs
 
@@ -38,6 +43,25 @@ def _video_or_404(video_id: str) -> storage.VideoRecord:
     if record is None:
         abort(404, description="Video no encontrado")
     return record
+
+
+def _team_names(record: storage.VideoRecord) -> list[str]:
+    """
+    Nombres de las 2 parejas a ofrecer en el selector de "ganador del punto".
+    Si el video ya fue procesado, usa los que infirió AnalyticsEngine
+    (metadata.json); si no, cae al default genérico pareja_A/pareja_B.
+    """
+    if record.output_dir:
+        metadata_path = Path(record.output_dir) / "metadata.json"
+        if metadata_path.exists():
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                teams = sorted(set(metadata.get("teams", {}).values()))
+                if teams:
+                    return teams
+            except (json.JSONDecodeError, OSError):
+                pass
+    return DEFAULT_TEAM_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -60,15 +84,25 @@ def calibrate_page(video_id: str):
 def results_page(video_id: str):
     record = _video_or_404(video_id)
     heatmaps = []
+    has_points_export = False
     if record.output_dir:
         heatmaps = sorted(p.name for p in Path(record.output_dir).glob("heatmap_*.png"))
-    return render_template("results.html", video=record, heatmaps=heatmaps)
+        has_points_export = (Path(record.output_dir) / "points.json").exists()
+    return render_template(
+        "results.html", video=record, heatmaps=heatmaps, has_points_export=has_points_export
+    )
 
 
 @app.route("/video/<video_id>/label")
 def label_page(video_id: str):
     record = _video_or_404(video_id)
     return render_template("label_shots.html", video=record, shot_types=SHOT_TYPES)
+
+
+@app.route("/video/<video_id>/points")
+def points_page(video_id: str):
+    record = _video_or_404(video_id)
+    return render_template("points.html", video=record, team_names=_team_names(record))
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +303,100 @@ def api_delete_shot(video_id: str, shot_id: str):
     ok = store.delete_shot(shot_id)
     if not ok:
         return jsonify({"error": "Golpe no encontrado."}), 404
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# API: puntos (inicio/fin de cada punto + ganador por pareja)
+# ---------------------------------------------------------------------------
+
+def _points_path(video_id: str) -> Path:
+    return config.OUTPUTS_DIR / video_id / "points.json"
+
+
+@app.route("/api/videos/<video_id>/teams")
+def api_get_teams(video_id: str):
+    record = _video_or_404(video_id)
+    return jsonify({"teams": _team_names(record)})
+
+
+@app.route("/api/videos/<video_id>/points", methods=["GET"])
+def api_list_points(video_id: str):
+    _video_or_404(video_id)
+    store = PointLabelStore(_points_path(video_id))
+    return jsonify(store.to_records())
+
+
+@app.route("/api/videos/<video_id>/points/summary")
+def api_points_summary(video_id: str):
+    _video_or_404(video_id)
+    store = PointLabelStore(_points_path(video_id))
+    return jsonify(store.summary())
+
+
+@app.route("/api/videos/<video_id>/points/start", methods=["POST"])
+def api_start_point(video_id: str):
+    _video_or_404(video_id)
+    payload = request.get_json(force=True)
+    frame = payload.get("frame")
+    timestamp_s = payload.get("timestamp_s")
+    if frame is None or timestamp_s is None:
+        return jsonify({"error": "Faltan campos: frame, timestamp_s."}), 400
+
+    store = PointLabelStore(_points_path(video_id))
+    try:
+        event = store.start_point(frame=int(frame), timestamp_s=float(timestamp_s))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(event.to_dict())
+
+
+@app.route("/api/videos/<video_id>/points/<point_id>/close", methods=["POST"])
+def api_close_point(video_id: str, point_id: str):
+    _video_or_404(video_id)
+    payload = request.get_json(force=True)
+    frame = payload.get("frame")
+    timestamp_s = payload.get("timestamp_s")
+    winner_team = payload.get("winner_team")
+    if frame is None or timestamp_s is None or not winner_team:
+        return jsonify({"error": "Faltan campos: frame, timestamp_s, winner_team."}), 400
+
+    store = PointLabelStore(_points_path(video_id))
+    try:
+        event = store.close_point(
+            point_id=point_id,
+            frame=int(frame),
+            timestamp_s=float(timestamp_s),
+            winner_team=winner_team,
+            note=payload.get("note", ""),
+        )
+    except KeyError:
+        return jsonify({"error": "Punto no encontrado."}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(event.to_dict())
+
+
+@app.route("/api/videos/<video_id>/points/<point_id>", methods=["PUT", "PATCH"])
+def api_update_point(video_id: str, point_id: str):
+    _video_or_404(video_id)
+    payload = request.get_json(force=True)
+    store = PointLabelStore(_points_path(video_id))
+    allowed_fields = {"winner_team", "note"}
+    updates = {k: v for k, v in payload.items() if k in allowed_fields}
+    event = store.update_point(point_id, **updates)
+    if event is None:
+        return jsonify({"error": "Punto no encontrado."}), 404
+    return jsonify(event.to_dict())
+
+
+@app.route("/api/videos/<video_id>/points/<point_id>", methods=["DELETE"])
+def api_delete_point(video_id: str, point_id: str):
+    _video_or_404(video_id)
+    store = PointLabelStore(_points_path(video_id))
+    ok = store.delete_point(point_id)
+    if not ok:
+        return jsonify({"error": "Punto no encontrado."}), 404
     return jsonify({"ok": True})
 
 

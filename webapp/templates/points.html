@@ -1,0 +1,56 @@
+{% extends "_base.html" %}
+{% block title %}Puntos — {{ video.original_filename }}{% endblock %}
+{% block content %}
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Video</h2>
+    <video id="playerVideo" controls
+      src="{% if video.status == 'done' %}{{ url_for('media_output', video_id=video.id, filename='output_annotated.mp4') }}{% else %}{{ url_for('media_upload', video_id=video.id) }}{% endif %}">
+    </video>
+    <p class="muted" id="currentTimeText" style="margin-top:8px;">Frame actual: 0 (t=0.00s)</p>
+
+    <div id="openPointBanner" style="display:none;" class="flash info"></div>
+
+    <div class="shot-form">
+      <button class="btn" id="startPointBtn">Marcar inicio de punto</button>
+    </div>
+
+    <div class="shot-form" id="closePointForm" style="display:none;">
+      <label class="muted">Ganó:</label>
+      <select id="winnerSelect">
+        {% for t in team_names %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" id="pointNoteInput" placeholder="Nota (opcional)">
+      <button class="btn" id="closePointBtn">Marcar fin de punto (con ganador)</button>
+    </div>
+
+    <div id="pointsFlash" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Marcador</h2>
+    <div id="scoreboard" class="grid-2" style="margin-bottom:16px;"></div>
+    <p class="muted" id="avgDurationText"></p>
+
+    <h3 style="margin-top:20px;">Puntos</h3>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Inicio</th><th>Fin</th><th>Duración</th><th>Ganador</th><th></th></tr>
+      </thead>
+      <tbody id="pointsTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.PADEL_VIDEO_ID = "{{ video.id }}";
+  window.PADEL_VIDEO_FPS = {{ video.fps or 30 }};
+</script>
+<script src="{{ url_for('static', filename='js/points.js') }}"></script>
+{% endblock %}

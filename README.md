@@ -16,6 +16,7 @@ padel_analytics/
   tracking.py          FASE 2 — PadelTracker: YOLOv8 + ByteTrack + filtrado espacial + pelota
   coordinates.py        FASE 3 — CoordinateTransformer + AnalyticsEngine: proyección 2D + heatmaps
   shot_detection.py     Detección heurística de golpes + almacenamiento de etiquetas
+  points.py              Marcado de inicio/fin de cada punto + ganador por pareja
   rendering.py           FASE 4 — VideoRenderer: video doble panel + export CSV/JSON/heatmaps
   pipeline.py             Orquestador end-to-end de las 4 fases
   storage.py               Registro de videos/jobs (JSON, sin DB externa)
@@ -93,6 +94,17 @@ propia PC; los videos y resultados se guardan en `data/`.
    agregar golpes manuales marcando el frame exacto sobre el reproductor
    de video, eligiendo jugador y tipo de golpe (derecha, revés, bandeja,
    víbora, smash, saque, etc.).
+6. **Marcar puntos** (`/video/<id>/points`): mientras mirás el video, un
+   botón "Marcar inicio de punto" registra el frame donde arranca el rally;
+   cuando termina, "Marcar fin de punto" te pide elegir qué pareja lo ganó
+   (y opcionalmente una nota). Sólo puede haber un punto abierto a la vez.
+   La página muestra el marcador acumulado (puntos ganados por cada pareja),
+   la duración promedio del rally, y la lista completa de puntos — cada uno
+   clickeable para saltar el video a ese instante. Esto sirve para poder
+   filtrar después cualquier otra analítica (posiciones, golpes, heatmaps)
+   al rango de frames de un punto específico, sin tener que cortar el video
+   en clips separados. Se puede usar en cualquier momento, no hace falta
+   esperar a que termine el procesamiento de YOLOv8.
 
 ## 4. Uso también como librería (sin la webapp)
 
