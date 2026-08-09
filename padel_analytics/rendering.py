@@ -107,6 +107,16 @@ class CourtMinimapRenderer:
         return canvas
 
 
+# Candidatos de códec a probar, en orden de preferencia. 'avc1'/'H264' son
+# H.264, el único códec que TODOS los navegadores reproducen de forma nativa
+# en un <video>; 'mp4v' (MPEG-4 Part 2) es el que trae OpenCV como garantía
+# de funcionar en cualquier instalación, pero Chrome/Edge/Firefox se niegan
+# a reproducirlo embebido en un .mp4 (el video queda "mudo": se sube bien,
+# pero el <video> se ve en negro/0:00 como si no tuviera contenido). Por eso
+# se intenta primero H.264 y sólo se cae a mp4v si el sistema no lo soporta.
+VIDEO_CODEC_CANDIDATES = ["avc1", "H264", "mp4v"]
+
+
 class VideoRenderer:
     """
     Compone el video final de doble panel: video original anotado (arriba)
@@ -121,7 +131,7 @@ class VideoRenderer:
         geometry: CourtGeometry,
         trail_length: int = 20,
         minimap_scale: float = 0.42,
-        fourcc: str = "mp4v",
+        fourcc: str | None = None,
     ):
         self.output_path = Path(output_path)
         self.frame_width, self.frame_height = frame_size
@@ -132,12 +142,32 @@ class VideoRenderer:
 
         self._trails: dict[int, deque] = defaultdict(lambda: deque(maxlen=trail_length))
 
-        self.writer = cv2.VideoWriter(
-            str(self.output_path),
-            cv2.VideoWriter_fourcc(*fourcc),
-            fps,
+        candidates = [fourcc] if fourcc else VIDEO_CODEC_CANDIDATES
+        self.writer, self.codec_used = self._open_writer(candidates)
+
+    def _open_writer(self, codec_candidates: list[str]) -> tuple[cv2.VideoWriter, str]:
+        last_writer = None
+        for codec in codec_candidates:
+            writer = cv2.VideoWriter(
+                str(self.output_path),
+                cv2.VideoWriter_fourcc(*codec),
+                self.fps,
+                (self.frame_width, self.frame_height),
+            )
+            if writer.isOpened():
+                return writer, codec
+            writer.release()
+            last_writer = writer
+
+        # Ningún códec preferido abrió: nos quedamos con mp4v, que en la
+        # práctica de OpenCV siempre está disponible (aunque el navegador
+        # no lo reproduzca embebido, el archivo se genera y es válido para
+        # abrir con VLC/mpv o descargar).
+        fallback = cv2.VideoWriter(
+            str(self.output_path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps,
             (self.frame_width, self.frame_height),
         )
+        return fallback, "mp4v"
 
     def _annotate_main_panel(self, frame: np.ndarray, tracking_result: FrameTrackingResult) -> np.ndarray:
         annotated = frame.copy()

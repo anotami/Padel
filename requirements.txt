@@ -18,3 +18,4 @@ pandas>=2.2.0              # manipulación de la serie temporal exportada
 matplotlib>=3.8.0          # renderizado de heatmaps
 Flask>=3.0.0                # servidor web local (la app "gestionable")
 Werkzeug>=3.0.0
+imageio-ffmpeg>=0.5.0      # re-codifica el video de salida a H.264 para que se vea en el navegador

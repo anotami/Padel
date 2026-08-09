@@ -19,6 +19,8 @@ from . import config
 from .calibration import CourtCalibrator
 from .tracking import PadelTracker, CourtAreaFilter
 from .coordinates import AnalyticsEngine
+from .identity import PlayerIdentityResolver
+from .video_transcode import try_transcode_to_h264
 from .shot_detection import ShotDetector, ShotLabelStore
 from .rendering import (
     VideoRenderer,
@@ -41,6 +43,7 @@ class PipelineResult:
     heatmap_paths: dict[str, Path]
     total_frames: int
     fps: float
+    video_codec_used: str = "mp4v"
 
 
 class PadelAnalysisPipeline:
@@ -103,6 +106,11 @@ class PadelAnalysisPipeline:
             geometry=self.calibrator.geometry,
         )
 
+        # --- Resolución de identidad: limita a MAX_PLAYERS_ON_COURT IDs estables,
+        # re-identificando por posición 2D en vez de confiar en el tracker_id
+        # crudo de ByteTrack (que se multiplica con cada oclusión/reentrada). ---
+        identity_resolver = PlayerIdentityResolver(max_players=config.MAX_PLAYERS_ON_COURT)
+
         frame_index = 0
         processed_index = 0
         try:
@@ -116,12 +124,21 @@ class PadelAnalysisPipeline:
                     continue
 
                 tracking_result = tracker.process_frame(frame, processed_index)
+
+                players_2d_m: dict[int, tuple[float, float]] = {}
+                resolved_players = []
+                for p in tracking_result.players:
+                    pos_m = analytics.transformer.player_to_meters(p.foot_point)
+                    slot_id = identity_resolver.resolve(p.tracker_id, pos_m, processed_index)
+                    if slot_id is None:
+                        continue  # detección descartada como ruido (ver PlayerIdentityResolver)
+                    p.tracker_id = slot_id
+                    players_2d_m[slot_id] = pos_m
+                    resolved_players.append(p)
+                tracking_result.players = resolved_players
+
                 analytics.ingest_frame(tracking_result)
 
-                players_2d_m = {
-                    p.tracker_id: analytics.transformer.player_to_meters(p.foot_point)
-                    for p in tracking_result.players
-                }
                 ball_2d_m = None
                 if tracking_result.ball is not None and tracking_result.ball.point_xy is not None:
                     ball_2d_m = analytics.transformer.ball_to_meters(tracking_result.ball.point_xy)
@@ -137,10 +154,22 @@ class PadelAnalysisPipeline:
             cap.release()
             renderer.release()
 
+        # Si cv2.VideoWriter no pudo usar un códec H.264 real, intentamos
+        # re-codificar con ffmpeg (vía imageio-ffmpeg) para que el video
+        # final se pueda reproducir embebido en el navegador. Si no está
+        # disponible, el mp4 queda igual de válido pero sólo reproducible
+        # descargándolo (se avisa en la webapp).
+        video_codec_used = renderer.codec_used
+        if video_codec_used not in ("avc1", "H264"):
+            if progress_cb is not None:
+                progress_cb(total_frames, total_frames, "Convirtiendo video a H.264 para el navegador...")
+            if try_transcode_to_h264(output_video_path):
+                video_codec_used = "h264_ffmpeg"
+
         if progress_cb is not None:
             progress_cb(total_frames, total_frames, "Generando analítica y exportaciones")
 
-        result = self._export_all(analytics, output_video_path, total_frames, fps)
+        result = self._export_all(analytics, output_video_path, total_frames, fps, video_codec_used)
 
         if progress_cb is not None:
             progress_cb(total_frames, total_frames, "Completado")
@@ -148,7 +177,12 @@ class PadelAnalysisPipeline:
         return result
 
     def _export_all(
-        self, analytics: AnalyticsEngine, output_video_path: Path, total_frames: int, fps: float
+        self,
+        analytics: AnalyticsEngine,
+        output_video_path: Path,
+        total_frames: int,
+        fps: float,
+        video_codec_used: str = "mp4v",
     ) -> PipelineResult:
         records = analytics.to_records()
 
@@ -184,6 +218,7 @@ class PadelAnalysisPipeline:
             "total_frames": total_frames,
             "fps": fps,
             "teams": analytics.infer_teams(),
+            "video_codec_used": video_codec_used,
         }
         (self.output_dir / "metadata.json").write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -198,4 +233,5 @@ class PadelAnalysisPipeline:
             heatmap_paths=heatmap_paths,
             total_frames=total_frames,
             fps=fps,
+            video_codec_used=video_codec_used,
         )

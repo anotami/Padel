@@ -5,7 +5,18 @@
 <div class="card">
   <h2>Video anotado (doble panel)</h2>
   <p class="muted">Panel principal: cajas delimitadoras, ID de jugador y trayectoria reciente. Minimapa (esquina inferior): posición cenital exacta de los 4 jugadores y la pelota.</p>
+  {% if not codec_playable_in_browser %}
+  <div class="flash error">
+    Este video se generó con el códec <code>{{ video_codec_used }}</code>, que la mayoría de los
+    navegadores no reproducen embebido (por eso el reproductor de abajo puede verse en negro o sin
+    avanzar). El archivo es válido igual: descargalo y abrilo con VLC, mpv o similar.
+  </div>
+  <a class="btn" href="{{ url_for('media_output', video_id=video.id, filename='output_annotated.mp4') }}" download style="margin-bottom:12px; display:inline-block;">Descargar video (.mp4)</a>
+  {% endif %}
   <video controls src="{{ url_for('media_output', video_id=video.id, filename='output_annotated.mp4') }}"></video>
+  {% if codec_playable_in_browser %}
+  <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='output_annotated.mp4') }}" download style="margin-top:10px; display:inline-block;">Descargar video (.mp4)</a>
+  {% endif %}
 </div>
 
 <div class="card">

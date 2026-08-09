@@ -97,8 +97,21 @@ def results_page(video_id: str):
     if record.output_dir:
         heatmaps = sorted(p.name for p in Path(record.output_dir).glob("heatmap_*.png"))
         has_points_export = (Path(record.output_dir) / "points.json").exists()
+
+    # Si el códec H.264 no estaba disponible en esta PC, VideoRenderer cayó a
+    # mp4v: el archivo es válido pero la mayoría de los navegadores no lo
+    # reproducen embebido en un <video>. Avisamos y ofrecemos descarga directa.
+    metadata = _read_metadata(record)
+    video_codec_used = metadata.get("video_codec_used", "mp4v")
+    codec_playable_in_browser = video_codec_used in ("avc1", "H264", "h264_ffmpeg")
+
     return render_template(
-        "results.html", video=record, heatmaps=heatmaps, has_points_export=has_points_export
+        "results.html",
+        video=record,
+        heatmaps=heatmaps,
+        has_points_export=has_points_export,
+        codec_playable_in_browser=codec_playable_in_browser,
+        video_codec_used=video_codec_used,
     )
 
 

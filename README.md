@@ -18,7 +18,9 @@ padel_analytics/
   shot_detection.py     Detección heurística de golpes + almacenamiento de etiquetas
   points.py              Marcado de inicio/fin de cada punto + ganador por pareja
   match_stats.py          Cruza puntos + golpes: WIN/LOSS por último toque, golpes por jugador
+  identity.py              Limita el tracking a 4 jugadores estables (reidentificación espacial)
   rendering.py           FASE 4 — VideoRenderer: video doble panel + export CSV/JSON/heatmaps
+  video_transcode.py       Re-codifica el video de salida a H.264 (compatible con el navegador)
   pipeline.py             Orquestador end-to-end de las 4 fases
   storage.py               Registro de videos/jobs (JSON, sin DB externa)
   video_io.py               Utilidades de lectura de video (metadata, extracción de frames)
@@ -164,7 +166,28 @@ print(result.heatmap_paths)         # heatmaps PNG por pareja/jugador
   la línea.
 - **Tracking de jugadores**: `supervision.ByteTrack` asocia detecciones
   entre frames por IoU + confianza, manteniendo IDs estables incluso con
-  oclusiones breves (jugador tapado por otro, por la red, etc.).
+  oclusiones breves (jugador tapado por otro, por la red, etc.). Aun así,
+  con oclusiones más largas ByteTrack puede "perder" a un jugador y darle
+  un `tracker_id` nuevo al reaparecer — sin corregir esto, un partido
+  entero puede terminar con 8-10 IDs distintos para sólo 4 personas.
+  `padel_analytics/identity.py` (`PlayerIdentityResolver`) corrige esto
+  después del tracking: mantiene como máximo 4 "slots" estables con su
+  última posición 2D conocida, y reasigna cualquier `tracker_id` nuevo al
+  slot más cercano en metros (o lo descarta como ruido si no hay lugar ni
+  cercanía — típicamente un espectador que se coló por el filtro
+  espacial). Es la capa que garantiza que siempre haya como máximo 4
+  jugadores en el video anotado, el CSV y los heatmaps.
+- **Códec del video de salida**: `cv2.VideoWriter` intenta primero un
+  fourcc H.264 (`avc1`/`H264`); en muchas instalaciones de OpenCV (sobre
+  todo `opencv-python` por pip) ese encoder no está disponible y cae en
+  silencio a `mp4v` (MPEG-4 Part 2) — un archivo válido, pero que ningún
+  navegador reproduce embebido en un `<video>` (se ve en negro / 0:00).
+  Para no depender de eso, si el fourcc H.264 de OpenCV falla, el pipeline
+  re-codifica el archivo con el binario de FFmpeg que trae empaquetado
+  `imageio-ffmpeg` (`libx264`, sin que el usuario tenga que instalar nada
+  aparte). Si ni siquiera eso está disponible, la webapp lo detecta
+  (`metadata.json` guarda qué códec quedó) y muestra un aviso + botón de
+  descarga directa en vez de un reproductor roto.
 - **Tracking de pelota**: no se usa ByteTrack (pensado para múltiples
   objetos tipo persona) sino un filtro de Kalman de velocidad constante,
   porque la pelota es un único objeto muy rápido y con detecciones
