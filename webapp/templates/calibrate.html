@@ -1,0 +1,56 @@
+{% extends "_base.html" %}
+{% block title %}Calibrar pista — {{ video.original_filename }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Fase 1 — Calibración de la pista</h2>
+  <p class="muted">
+    Hacé click en las 4 esquinas de la pista, en este orden: <b>fondo-izquierda</b> &rarr;
+    <b>fondo-derecha</b> &rarr; <b>frente-derecha</b> &rarr; <b>frente-izquierda</b>
+    (el "frente" es el lado más cercano a la cámara). Con esos 4 puntos se calcula la
+    homografía que transforma la vista de cámara en una vista cenital 2D de 20m x 10m.
+  </p>
+
+  <div class="shot-form">
+    <label class="muted" for="timestampInput">Segundo del video a usar como referencia:</label>
+    <input type="number" id="timestampInput" min="0" step="1" value="{{ (video.duration_s / 2) | int }}">
+    <button class="btn secondary" id="loadFrameBtn">Cargar frame</button>
+    <button class="btn secondary" id="resetPointsBtn">Reiniciar puntos</button>
+  </div>
+
+  <div class="corner-list" id="cornerList">
+    <span class="corner-chip" data-idx="0">1. Fondo-Izquierda</span>
+    <span class="corner-chip" data-idx="1">2. Fondo-Derecha</span>
+    <span class="corner-chip" data-idx="2">3. Frente-Derecha</span>
+    <span class="corner-chip" data-idx="3">4. Frente-Izquierda</span>
+  </div>
+
+  <canvas id="calibCanvas"></canvas>
+
+  <div id="calibFlash" style="margin-top:12px;"></div>
+  <button class="btn" id="saveCalibrationBtn" disabled style="margin-top:8px;">Guardar calibración</button>
+</div>
+
+<div class="card" id="processCard" style="{{ 'display:none;' if video.status == 'uploaded' else '' }}">
+  <h2>Fases 2-4 — Procesar video</h2>
+  <p class="muted">Detecta jugadores y pelota, hace el tracking, proyecta a 2D y genera el video anotado + analítica.</p>
+  <div class="shot-form">
+    <label class="muted" for="strideInput">Procesar 1 de cada N frames (más rápido, menos preciso):</label>
+    <input type="number" id="strideInput" min="1" max="5" value="1" style="width:70px;">
+    <button class="btn" id="startProcessBtn">Iniciar procesamiento</button>
+  </div>
+  <div style="margin-top:14px;">
+    <div class="progress-bar-track"><div class="progress-bar-fill" id="processProgressFill"></div></div>
+    <p class="muted" id="processStatusText" style="margin-top:8px;"></p>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.PADEL_VIDEO_ID = "{{ video.id }}";
+  window.PADEL_VIDEO_STATUS = "{{ video.status }}";
+</script>
+<script src="{{ url_for('static', filename='js/calibration.js') }}"></script>
+{% endblock %}

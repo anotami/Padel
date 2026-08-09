@@ -1,0 +1,20 @@
+# Sistema de análisis de video de pádel — dependencias
+#
+# Instalación recomendada (entorno virtual):
+#   python3 -m venv .venv
+#   source .venv/bin/activate        # Windows: .venv\Scripts\activate
+#   pip install -r requirements.txt
+#
+# Nota GPU (opcional pero recomendado para procesar más rápido):
+#   Si tenés una GPU NVIDIA, instalá primero PyTorch con soporte CUDA
+#   siguiendo https://pytorch.org/get-started/locally/ y DESPUÉS
+#   corré este requirements.txt (torch ya instalado no se reinstala).
+
+ultralytics>=8.2.0        # YOLOv8 (detección de personas y pelota)
+supervision>=0.21.0       # ByteTrack + utilidades de anotación
+opencv-python>=4.9.0      # visión artificial: homografía, dibujo, lectura/escritura de video
+numpy>=1.26.0
+pandas>=2.2.0              # manipulación de la serie temporal exportada
+matplotlib>=3.8.0          # renderizado de heatmaps
+Flask>=3.0.0                # servidor web local (la app "gestionable")
+Werkzeug>=3.0.0

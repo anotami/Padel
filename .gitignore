@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Videos subidos y resultados generados (pueden pesar varios GB)
+data/uploads/*
+data/outputs/*
+data/models/*
+data/db.json
+!data/uploads/.gitkeep
+!data/outputs/.gitkeep
+!data/models/.gitkeep
+
+# Pesos de YOLO descargados automáticamente por ultralytics
+*.pt
+
+.DS_Store

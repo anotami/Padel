@@ -1,0 +1,47 @@
+{% extends "_base.html" %}
+{% block title %}Etiquetar golpes — {{ video.original_filename }}{% endblock %}
+{% block content %}
+
+<div class="grid-2">
+  <div class="card">
+    <h2>Video</h2>
+    <video id="playerVideo" controls
+      src="{% if video.status == 'done' %}{{ url_for('media_output', video_id=video.id, filename='output_annotated.mp4') }}{% else %}{{ url_for('media_upload', video_id=video.id) }}{% endif %}">
+    </video>
+    <p class="muted" id="currentTimeText" style="margin-top:8px;">Frame actual: 0 (t=0.00s)</p>
+
+    <div class="shot-form">
+      <label class="muted">Jugador:</label>
+      <input type="number" id="playerIdInput" min="1" max="4" placeholder="ID (opcional)" style="width:90px;">
+      <label class="muted">Tipo de golpe:</label>
+      <select id="shotTypeSelect">
+        {% for t in shot_types %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn" id="addShotBtn">Marcar golpe en este frame</button>
+    </div>
+    <div id="labelFlash" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Golpes registrados</h2>
+    <p class="muted">Los marcados como "auto" fueron propuestos por la heurística de trayectoria de pelota; podés corregir el tipo o el jugador, o borrarlos.</p>
+    <table>
+      <thead>
+        <tr><th>Frame</th><th>t (s)</th><th>Jugador</th><th>Tipo</th><th>Origen</th><th></th></tr>
+      </thead>
+      <tbody id="shotsTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.PADEL_VIDEO_ID = "{{ video.id }}";
+  window.PADEL_VIDEO_FPS = {{ video.fps or 30 }};
+</script>
+<script src="{{ url_for('static', filename='js/shots.js') }}"></script>
+{% endblock %}

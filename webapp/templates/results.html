@@ -1,0 +1,33 @@
+{% extends "_base.html" %}
+{% block title %}Resultados — {{ video.original_filename }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Video anotado (doble panel)</h2>
+  <p class="muted">Panel principal: cajas delimitadoras, ID de jugador y trayectoria reciente. Minimapa (esquina inferior): posición cenital exacta de los 4 jugadores y la pelota.</p>
+  <video controls src="{{ url_for('media_output', video_id=video.id, filename='output_annotated.mp4') }}"></video>
+</div>
+
+<div class="card">
+  <h2>Exportaciones</h2>
+  <p class="muted">Serie temporal (Frame, Player_ID, Pos_X_2D, Pos_Y_2D, Ball_X, Ball_Y) y golpes detectados.</p>
+  <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='timeseries.csv') }}" download>Descargar CSV</a>
+  <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='timeseries.json') }}" download>Descargar JSON</a>
+  <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='shots.json') }}" download>Descargar golpes (JSON)</a>
+  <a class="btn" href="{{ url_for('label_page', video_id=video.id) }}">Ir a etiquetado de golpes</a>
+</div>
+
+<div class="card">
+  <h2>Mapas de calor de posicionamiento</h2>
+  <p class="muted">Ocupación de pista por pareja y por jugador individual, a lo largo de todo el partido.</p>
+  <div class="grid-heatmaps">
+    {% for h in heatmaps %}
+    <div>
+      <img class="heatmap" src="{{ url_for('media_output', video_id=video.id, filename=h) }}" alt="{{ h }}">
+      <p class="muted" style="text-align:center; margin-top:4px;">{{ h }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% endblock %}

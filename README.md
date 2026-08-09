@@ -1,0 +1,163 @@
+# Padel Vision Analytics
+
+Sistema modular en Python para analizar videos de partidos de pádel grabados
+con cámara fija: calibración de pista, detección y seguimiento de jugadores
+y pelota, proyección a vista cenital 2D, mapas de calor tácticos y
+etiquetado de golpes. Se gestiona desde una **webapp local** (Flask) que
+corre 100% en tu PC — no se sube nada a internet ni depende de GitHub Pages
+(GitHub Pages sólo sirve archivos estáticos y no puede ejecutar Python/YOLO).
+
+## Arquitectura del sistema de visión artificial
+
+```
+padel_analytics/
+  config.py           Constantes: dimensiones de pista (20x10m), umbrales, rutas
+  calibration.py       FASE 1 — CourtCalibrator: homografía cámara -> vista cenital
+  tracking.py          FASE 2 — PadelTracker: YOLOv8 + ByteTrack + filtrado espacial + pelota
+  coordinates.py        FASE 3 — CoordinateTransformer + AnalyticsEngine: proyección 2D + heatmaps
+  shot_detection.py     Detección heurística de golpes + almacenamiento de etiquetas
+  rendering.py           FASE 4 — VideoRenderer: video doble panel + export CSV/JSON/heatmaps
+  pipeline.py             Orquestador end-to-end de las 4 fases
+  storage.py               Registro de videos/jobs (JSON, sin DB externa)
+  video_io.py               Utilidades de lectura de video (metadata, extracción de frames)
+
+webapp/
+  server.py             App Flask: páginas + API REST
+  jobs.py                Procesamiento en background (threading)
+  templates/               Páginas HTML (subir, calibrar, resultados, etiquetar golpes)
+  static/                    CSS + JS (canvas de calibración, reproductor, etiquetado)
+
+run.py                  Punto de entrada: levanta el servidor y abre el navegador
+```
+
+## 1. Instalación
+
+Requiere **Python 3.10+**.
+
+```bash
+git clone <este-repo>
+cd Padel
+python3 -m venv .venv
+source .venv/bin/activate        # en Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+Dependencias instaladas (ver `requirements.txt`):
+
+```
+pip install ultralytics supervision opencv-python numpy pandas matplotlib Flask Werkzeug
+```
+
+> **GPU (opcional, recomendado):** si tenés GPU NVIDIA, instalá PyTorch con
+> CUDA *antes* de correr `pip install -r requirements.txt`, siguiendo
+> https://pytorch.org/get-started/locally/. Sin GPU, YOLOv8 corre en CPU
+> (más lento, pero funciona igual).
+
+La primera vez que se procese un video, `ultralytics` descarga automáticamente
+los pesos `yolov8n.pt` (modelo pre-entrenado en COCO, detecta clases
+`person` y `sports ball` sin necesidad de entrenar nada extra).
+
+## 2. Levantar la webapp local
+
+```bash
+python run.py
+```
+
+Esto abre automáticamente `http://127.0.0.1:5000` en tu navegador. Si no
+querés que se abra solo: `python run.py --no-browser`.
+
+Todo el procesamiento (YOLOv8, tracking, homografía, rendering) corre en tu
+propia PC; los videos y resultados se guardan en `data/`.
+
+## 3. Flujo de uso paso a paso
+
+1. **Subir video** (`/`): elegí un `.mp4` o `.mov` grabado con cámara fija
+   que muestre la pista completa.
+2. **Calibrar la pista** (`/video/<id>/calibrate` — FASE 1): se muestra un
+   frame del video; hacé click en las 4 esquinas de la pista en el orden
+   indicado (fondo-izq, fondo-der, frente-der, frente-izq). Esto calcula la
+   homografía `cv2.getPerspectiveTransform` que se usa para toda la
+   proyección 2D posterior.
+3. **Procesar** (mismo página, una vez calibrado): dispara el pipeline de
+   las FASES 2-4 en segundo plano — detección de jugadores/pelota con
+   YOLOv8, tracking con ByteTrack, filtrado espacial por el polígono de la
+   pista, proyección a metros reales y generación del video anotado. Una
+   barra de progreso muestra el avance frame a frame.
+4. **Resultados** (`/video/<id>/results` — FASE 4): video de doble panel
+   (cámara anotada + minimapa 2D), heatmaps de ocupación por pareja y por
+   jugador, y descarga de la serie temporal en CSV/JSON.
+5. **Etiquetar golpes** (`/video/<id>/label`): lista los golpes detectados
+   automáticamente por la heurística de trayectoria de la pelota (cambios
+   bruscos de dirección cerca de un jugador) y permite corregirlos o
+   agregar golpes manuales marcando el frame exacto sobre el reproductor
+   de video, eligiendo jugador y tipo de golpe (derecha, revés, bandeja,
+   víbora, smash, saque, etc.).
+
+## 4. Uso también como librería (sin la webapp)
+
+Todo el sistema de visión artificial es utilizable directamente en un
+script Python, por ejemplo en Jupyter/Colab:
+
+```python
+from padel_analytics.calibration import CourtCalibrator
+from padel_analytics.pipeline import PadelAnalysisPipeline
+
+# 1) Calibración manual (o cargar una guardada con CourtCalibrator.load(...))
+calibrator = CourtCalibrator()
+calibrator.set_image_points(
+    points=[[120, 80], [980, 80], [1100, 620], [10, 620]],  # 4 esquinas en píxeles
+    frame_width=1280, frame_height=720,
+)
+calibrator.save("data/outputs/mi_video/calibration.json", video_id="mi_video")
+
+# 2) Pipeline completo (Fases 2-4)
+pipeline = PadelAnalysisPipeline(
+    video_path="mi_partido.mp4",
+    calibrator=calibrator,
+    video_id="mi_video",
+)
+result = pipeline.run(progress_cb=lambda cur, total, msg: print(f"{cur}/{total} - {msg}"))
+
+print(result.output_video_path)     # video anotado con doble panel
+print(result.timeseries_csv_path)   # Frame, Player_ID, Pos_X_2D, Pos_Y_2D, Ball_X, Ball_Y
+print(result.heatmap_paths)         # heatmaps PNG por pareja/jugador
+```
+
+## 5. Notas de ingeniería
+
+- **Homografía**: `cv2.getPerspectiveTransform` resuelve los 8 grados de
+  libertad de la transformación proyectiva a partir de 4 correspondencias
+  de puntos (cámara → cenital). Se asume que la pista es plana, lo cual es
+  válido en pádel real.
+- **Punto de proyección del jugador**: se usa el centro-inferior del
+  bounding box ("foot point"), no el centro, para minimizar el error de
+  paralaje causado por la altura de la persona.
+- **Filtrado espacial**: `cv2.pointPolygonTest` descarta cualquier persona
+  detectada fuera del polígono de la pista (espectadores, utileros), con
+  un margen configurable en metros para no descartar jugadores pegados a
+  la línea.
+- **Tracking de jugadores**: `supervision.ByteTrack` asocia detecciones
+  entre frames por IoU + confianza, manteniendo IDs estables incluso con
+  oclusiones breves (jugador tapado por otro, por la red, etc.).
+- **Tracking de pelota**: no se usa ByteTrack (pensado para múltiples
+  objetos tipo persona) sino un filtro de Kalman de velocidad constante,
+  porque la pelota es un único objeto muy rápido y con detecciones
+  intermitentes (motion blur en los golpes fuertes).
+- **Heatmaps**: matriz de ocupación 2D (`np.histogram2d`) sobre las
+  posiciones proyectadas en metros, agregada por pareja (según el lado de
+  la red donde jugó cada ID en promedio) y por jugador individual.
+- **Detección de golpes**: heurística basada en cambios bruscos de
+  dirección/velocidad de la pelota en el plano 2D, filtrando por cercanía
+  a un jugador para descartar rebotes en pared/piso. Es un punto de
+  partida razonable sin entrenar un clasificador; el usuario confirma o
+  corrige cada golpe desde la webapp.
+
+## 6. Sobre GitHub Pages
+
+GitHub Pages sólo puede servir archivos estáticos (HTML/CSS/JS) — no puede
+ejecutar Python, YOLOv8 ni procesar video subido por el usuario. Por eso
+este proyecto se gestiona como una app local (`python run.py`) que corre en
+tu propia máquina. Si en el futuro querés una versión pública, la opción
+realista es desplegar `webapp/` en un servicio con backend (Render,
+Railway, un VPS propio, etc.) en vez de GitHub Pages.

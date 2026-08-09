@@ -1,0 +1,82 @@
+{% extends "_base.html" %}
+{% block title %}Padel Vision Analytics{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Subir video de partido</h2>
+  <p class="muted">Formatos soportados: .mp4 / .mov. Cámara fija recomendada para que la calibración de la pista sea válida durante todo el video.</p>
+  <div id="uploadFlash"></div>
+  <form id="uploadForm">
+    <input type="file" id="videoFile" name="video" accept=".mp4,.mov" required>
+    <button type="submit" class="btn">Subir video</button>
+  </form>
+  <div id="uploadProgress" style="margin-top:10px; display:none;">
+    <div class="progress-bar-track"><div class="progress-bar-fill" id="uploadProgressFill"></div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Partidos</h2>
+  {% if not videos %}
+    <p class="muted">Todavía no subiste ningún video.</p>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>Video</th>
+        <th>Duración</th>
+        <th>Estado</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for v in videos %}
+      <tr>
+        <td>{{ v.original_filename }}</td>
+        <td>{{ "%.0f"|format(v.duration_s) }}s &middot; {{ v.width }}x{{ v.height }} &middot; {{ "%.1f"|format(v.fps) }}fps</td>
+        <td><span class="badge {{ v.status }}">{{ v.status }}</span></td>
+        <td>
+          <a class="btn secondary" href="{{ url_for('calibrate_page', video_id=v.id) }}">Calibrar</a>
+          {% if v.status in ('done',) %}
+          <a class="btn secondary" href="{{ url_for('results_page', video_id=v.id) }}">Resultados</a>
+          <a class="btn secondary" href="{{ url_for('label_page', video_id=v.id) }}">Etiquetar golpes</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.getElementById('uploadForm');
+const flash = document.getElementById('uploadFlash');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById('videoFile');
+  if (!fileInput.files.length) return;
+
+  const formData = new FormData();
+  formData.append('video', fileInput.files[0]);
+
+  flash.innerHTML = '<div class="flash info">Subiendo y leyendo metadata del video...</div>';
+
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) {
+      flash.innerHTML = `<div class="flash error">${data.error || 'Error al subir el video.'}</div>`;
+      return;
+    }
+    window.location.href = `/video/${data.video_id}/calibrate`;
+  } catch (err) {
+    flash.innerHTML = `<div class="flash error">Error de red: ${err}</div>`;
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Padel Vision Analytics{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <h1><span class="dot"></span> Padel Vision Analytics</h1>
+    <a href="{{ url_for('index') }}">&larr; Volver al listado</a>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>Procesamiento 100% local &middot; YOLOv8 + ByteTrack + OpenCV</footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
