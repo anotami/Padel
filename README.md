@@ -79,7 +79,12 @@ propia PC; los videos y resultados se guardan en `data/`.
 ## 3. Flujo de uso paso a paso
 
 1. **Subir video** (`/`): elegí un `.mp4` o `.mov` grabado con cámara fija
-   que muestre la pista completa.
+   que muestre la pista completa. Desde el listado también podés
+   **Reprocesar** un video ya calibrado (por ejemplo, después de
+   actualizar el código con `git pull`, para que los resultados se
+   regeneren con la versión nueva) o **Eliminar** uno (borra el archivo
+   subido y toda su carpeta de resultados — calibración, video anotado,
+   golpes, puntos, nombres, heatmaps — sin vuelta atrás).
 2. **Calibrar la pista** (`/video/<id>/calibrate` — FASE 1): se muestra un
    frame del video; hacé click en las 4 esquinas de la pista en el orden
    indicado (fondo-izq, fondo-der, frente-der, frente-izq). Esto calcula la

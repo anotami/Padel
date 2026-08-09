@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import shutil
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, abort
@@ -218,6 +219,24 @@ def api_list_videos():
 def api_get_video(video_id: str):
     record = _video_or_404(video_id)
     return jsonify(record.to_dict())
+
+
+@app.route("/api/videos/<video_id>", methods=["DELETE"])
+def api_delete_video(video_id: str):
+    record = _video_or_404(video_id)
+
+    if jobs.is_processing(video_id):
+        return jsonify({"error": "No se puede borrar mientras se está procesando. Esperá a que termine."}), 409
+
+    if record.upload_path:
+        Path(record.upload_path).unlink(missing_ok=True)
+
+    output_dir = config.OUTPUTS_DIR / video_id
+    if output_dir.exists():
+        shutil.rmtree(output_dir, ignore_errors=True)
+
+    storage.delete_video(video_id)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/videos/<video_id>/frame")

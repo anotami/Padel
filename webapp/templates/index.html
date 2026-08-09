@@ -44,6 +44,10 @@
           <a class="btn secondary" href="{{ url_for('results_page', video_id=v.id) }}">Resultados</a>
           <a class="btn secondary" href="{{ url_for('label_page', video_id=v.id) }}">Etiquetar golpes</a>
           {% endif %}
+          {% if v.calibration_path and v.status != 'processing' %}
+          <button class="btn secondary reprocess-btn" data-id="{{ v.id }}">Reprocesar</button>
+          {% endif %}
+          <button class="btn danger delete-btn" data-id="{{ v.id }}" data-name="{{ v.original_filename }}" {{ 'disabled' if v.status == 'processing' else '' }}>Eliminar</button>
         </td>
       </tr>
       {% endfor %}
@@ -80,6 +84,31 @@ form.addEventListener('submit', async (e) => {
   } catch (err) {
     flash.innerHTML = `<div class="flash error">Error de red: ${err}</div>`;
   }
+});
+
+document.querySelectorAll('.delete-btn').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const name = btn.dataset.name;
+    if (!confirm(`¿Borrar "${name}"? Se elimina el video subido y todos sus resultados (calibración, video anotado, golpes, puntos, nombres, heatmaps). Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    const res = await fetch(`/api/videos/${btn.dataset.id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'No se pudo borrar el video.');
+      return;
+    }
+    btn.closest('tr').remove();
+  });
+});
+
+document.querySelectorAll('.reprocess-btn').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Iniciando...';
+    await fetch(`/api/videos/${btn.dataset.id}/process`, { method: 'POST' });
+    window.location.href = `/video/${btn.dataset.id}/calibrate`;
+  });
 });
 </script>
 {% endblock %}
