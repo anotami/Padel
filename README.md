@@ -17,6 +17,7 @@ padel_analytics/
   coordinates.py        FASE 3 — CoordinateTransformer + AnalyticsEngine: proyección 2D + heatmaps
   shot_detection.py     Detección heurística de golpes + almacenamiento de etiquetas
   points.py              Marcado de inicio/fin de cada punto + ganador por pareja
+  match_stats.py          Cruza puntos + golpes: WIN/LOSS por último toque, golpes por jugador
   rendering.py           FASE 4 — VideoRenderer: video doble panel + export CSV/JSON/heatmaps
   pipeline.py             Orquestador end-to-end de las 4 fases
   storage.py               Registro de videos/jobs (JSON, sin DB externa)
@@ -105,6 +106,18 @@ propia PC; los videos y resultados se guardan en `data/`.
    al rango de frames de un punto específico, sin tener que cortar el video
    en clips separados. Se puede usar en cualquier momento, no hace falta
    esperar a que termine el procesamiento de YOLOv8.
+7. **Estadísticas** (`/video/<id>/stats`): cruza automáticamente los puntos
+   marcados con los golpes registrados. Por cada punto cerrado, toma el
+   golpe con el frame más alto dentro de su rango como "el último que tocó
+   la pelota" y lo marca **WIN** si esa persona pertenecía a la pareja que
+   ganó el punto (golpe ganador) o **LOSS** si pertenecía a la pareja que
+   lo perdió (error propio, forzado o no forzado) — la misma convención que
+   se usa en estadísticas de pádel/tenis. También muestra el conteo total
+   de golpes por jugador (no hace falta haber marcado puntos para ver esto
+   último). Para que se calculen los equipos y por lo tanto el WIN/LOSS,
+   el video tiene que haber sido procesado al menos una vez (Fases 2-4);
+   los golpes por jugador se calculan igual sin procesar, si los cargaste
+   a mano.
 
 ## 4. Uso también como librería (sin la webapp)
 

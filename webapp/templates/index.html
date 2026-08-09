@@ -38,6 +38,7 @@
         <td>
           <a class="btn secondary" href="{{ url_for('calibrate_page', video_id=v.id) }}">Calibrar</a>
           <a class="btn secondary" href="{{ url_for('points_page', video_id=v.id) }}">Marcar puntos</a>
+          <a class="btn secondary" href="{{ url_for('stats_page', video_id=v.id) }}">Estadísticas</a>
           {% if v.status in ('done',) %}
           <a class="btn secondary" href="{{ url_for('results_page', video_id=v.id) }}">Resultados</a>
           <a class="btn secondary" href="{{ url_for('label_page', video_id=v.id) }}">Etiquetar golpes</a>

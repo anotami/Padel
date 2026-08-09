@@ -1,0 +1,48 @@
+{% extends "_base.html" %}
+{% block title %}Estadísticas — {{ video.original_filename }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Estadísticas del partido</h2>
+  <p class="muted">
+    Se calculan cruzando automáticamente los puntos marcados
+    (<a href="{{ url_for('points_page', video_id=video.id) }}">inicio/fin + pareja ganadora</a>)
+    con los golpes registrados (<a href="{{ url_for('label_page', video_id=video.id) }}">auto-detectados o etiquetados a mano</a>):
+    el golpe con el frame más alto dentro del rango de cada punto es "el último que tocó la pelota".
+    Si esa persona pertenecía a la pareja que ganó el punto, cuenta como <b>WIN</b> (golpe ganador);
+    si no, cuenta como <b>LOSS</b> (error propio).
+  </p>
+  <div id="teamsWarning" style="display:none;" class="flash error">
+    Todavía no procesaste este video (Fases 2-4), así que no hay parejas inferidas: los golpes por
+    jugador sí se muestran, pero no se puede calcular WIN/LOSS por último toque hasta procesarlo.
+  </div>
+</div>
+
+<div class="card">
+  <h3>Golpes y definición de puntos por jugador</h3>
+  <table>
+    <thead>
+      <tr><th>Jugador</th><th>Pareja</th><th>Golpes totales</th><th>WIN (golpe ganador)</th><th>LOSS (error propio)</th></tr>
+    </thead>
+    <tbody id="playersTableBody"></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Detalle por punto</h3>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Frames</th><th>Ganó</th><th>Último en tocar</th><th>Tipo de golpe</th><th>Resultado</th></tr>
+    </thead>
+    <tbody id="pointsTableBody"></tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.PADEL_VIDEO_ID = "{{ video.id }}";
+</script>
+<script src="{{ url_for('static', filename='js/stats.js') }}"></script>
+{% endblock %}

@@ -25,6 +25,7 @@ from padel_analytics import config, storage, video_io
 from padel_analytics.calibration import CourtCalibrator
 from padel_analytics.shot_detection import ShotLabelStore, SHOT_TYPES
 from padel_analytics.points import PointLabelStore
+from padel_analytics import match_stats
 
 DEFAULT_TEAM_NAMES = ["pareja_A", "pareja_B"]
 
@@ -45,23 +46,31 @@ def _video_or_404(video_id: str) -> storage.VideoRecord:
     return record
 
 
+def _read_metadata(record: storage.VideoRecord) -> dict:
+    """metadata.json generado por el pipeline (equipos inferidos, fps, etc.) o {} si no existe todavía."""
+    if record.output_dir:
+        metadata_path = Path(record.output_dir) / "metadata.json"
+        if metadata_path.exists():
+            try:
+                return json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+    return {}
+
+
 def _team_names(record: storage.VideoRecord) -> list[str]:
     """
     Nombres de las 2 parejas a ofrecer en el selector de "ganador del punto".
     Si el video ya fue procesado, usa los que infirió AnalyticsEngine
     (metadata.json); si no, cae al default genérico pareja_A/pareja_B.
     """
-    if record.output_dir:
-        metadata_path = Path(record.output_dir) / "metadata.json"
-        if metadata_path.exists():
-            try:
-                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-                teams = sorted(set(metadata.get("teams", {}).values()))
-                if teams:
-                    return teams
-            except (json.JSONDecodeError, OSError):
-                pass
-    return DEFAULT_TEAM_NAMES
+    teams = sorted(set(_read_metadata(record).get("teams", {}).values()))
+    return teams or DEFAULT_TEAM_NAMES
+
+
+def _player_teams(record: storage.VideoRecord) -> dict[str, str]:
+    """Mapa player_id (string) -> nombre de pareja, tal cual quedó guardado en metadata.json."""
+    return _read_metadata(record).get("teams", {})
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +112,12 @@ def label_page(video_id: str):
 def points_page(video_id: str):
     record = _video_or_404(video_id)
     return render_template("points.html", video=record, team_names=_team_names(record))
+
+
+@app.route("/video/<video_id>/stats")
+def stats_page(video_id: str):
+    record = _video_or_404(video_id)
+    return render_template("stats.html", video=record)
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +413,42 @@ def api_delete_point(video_id: str, point_id: str):
     if not ok:
         return jsonify({"error": "Punto no encontrado."}), 404
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# API: estadísticas derivadas (golpes por jugador + WIN/LOSS por último toque)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>/stats")
+def api_stats(video_id: str):
+    record = _video_or_404(video_id)
+
+    shots = ShotLabelStore(_shots_path(video_id)).all()
+    points = PointLabelStore(_points_path(video_id)).all()
+    player_teams = _player_teams(record)
+
+    outcomes = match_stats.compute_point_outcomes(points, shots, player_teams)
+    shot_counts = match_stats.shots_per_player(shots)
+    win_loss = match_stats.player_win_loss_counts(outcomes)
+
+    # Unimos golpes totales + WIN/LOSS en una sola fila por jugador para la tabla del frontend.
+    player_ids = sorted(set(shot_counts) | set(win_loss))
+    players_table = [
+        {
+            "player_id": pid,
+            "total_shots": shot_counts.get(pid, 0),
+            "wins": win_loss.get(pid, {}).get("WIN", 0),
+            "losses": win_loss.get(pid, {}).get("LOSS", 0),
+            "team": player_teams.get(str(pid)),
+        }
+        for pid in player_ids
+    ]
+
+    return jsonify({
+        "players": players_table,
+        "point_outcomes": [o.to_dict() for o in outcomes],
+        "teams_available": bool(player_teams),
+    })
 
 
 # ---------------------------------------------------------------------------
