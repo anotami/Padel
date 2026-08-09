@@ -14,6 +14,26 @@ player.addEventListener('timeupdate', () => {
   currentTimeText.textContent = `Frame actual: ${currentFrame()} (t=${player.currentTime.toFixed(2)}s)`;
 });
 
+let playerNamesById = {};
+
+async function loadPlayerOptions() {
+  const res = await fetch(`/api/videos/${videoId}/players`);
+  const data = await res.json();
+  const select = document.getElementById('playerIdSelect');
+
+  playerNamesById = {};
+  (data.players || []).forEach((p) => { playerNamesById[p.player_id] = p.name; });
+
+  select.innerHTML = '<option value="">(sin asignar)</option>' + (data.players || []).map(
+    (p) => `<option value="${p.player_id}">${p.name}</option>`
+  ).join('');
+}
+
+function playerLabel(playerId) {
+  if (playerId == null) return '-';
+  return playerNamesById[playerId] || `Jugador ${playerId}`;
+}
+
 async function loadShots() {
   const res = await fetch(`/api/videos/${videoId}/shots`);
   const shots = await res.json();
@@ -30,7 +50,7 @@ async function loadShots() {
     tr.innerHTML = `
       <td><a href="#" class="seek-link" data-t="${shot.timestamp_s}">${shot.frame}</a></td>
       <td>${shot.timestamp_s.toFixed(2)}</td>
-      <td>${shot.player_id ?? '-'}</td>
+      <td>${playerLabel(shot.player_id)}</td>
       <td>${shotTypeCell}</td>
       <td>${shot.auto_detected ? 'auto' : 'manual'}</td>
       <td><button class="btn secondary delete-btn" data-id="${shot.id}">Borrar</button></td>
@@ -55,7 +75,7 @@ async function loadShots() {
 
 document.getElementById('addShotBtn').addEventListener('click', async () => {
   const flash = document.getElementById('labelFlash');
-  const playerIdRaw = document.getElementById('playerIdInput').value;
+  const playerIdRaw = document.getElementById('playerIdSelect').value;
   const shotType = document.getElementById('shotTypeSelect').value;
 
   const payload = {
@@ -81,4 +101,4 @@ document.getElementById('addShotBtn').addEventListener('click', async () => {
   loadShots();
 });
 
-loadShots();
+loadPlayerOptions().then(loadShots);

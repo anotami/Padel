@@ -22,6 +22,8 @@ from .coordinates import AnalyticsEngine
 from .identity import PlayerIdentityResolver
 from .video_transcode import try_transcode_to_h264
 from .shot_detection import ShotDetector, ShotLabelStore
+from .shirt_color import ShirtColorAccumulator
+from .player_names import PlayerNameStore
 from .rendering import (
     VideoRenderer,
     export_timeseries_csv,
@@ -111,6 +113,9 @@ class PadelAnalysisPipeline:
         # crudo de ByteTrack (que se multiplica con cada oclusión/reentrada). ---
         identity_resolver = PlayerIdentityResolver(max_players=config.MAX_PLAYERS_ON_COURT)
 
+        # --- Color de camiseta: se usa como nombre por defecto de cada jugador. ---
+        color_accumulator = ShirtColorAccumulator()
+
         frame_index = 0
         processed_index = 0
         try:
@@ -135,6 +140,7 @@ class PadelAnalysisPipeline:
                     p.tracker_id = slot_id
                     players_2d_m[slot_id] = pos_m
                     resolved_players.append(p)
+                    color_accumulator.add_sample(slot_id, frame, p.bbox_xyxy)
                 tracking_result.players = resolved_players
 
                 analytics.ingest_frame(tracking_result)
@@ -169,7 +175,10 @@ class PadelAnalysisPipeline:
         if progress_cb is not None:
             progress_cb(total_frames, total_frames, "Generando analítica y exportaciones")
 
-        result = self._export_all(analytics, output_video_path, total_frames, fps, video_codec_used)
+        default_player_names = color_accumulator.finalize()
+        result = self._export_all(
+            analytics, output_video_path, total_frames, fps, video_codec_used, default_player_names
+        )
 
         if progress_cb is not None:
             progress_cb(total_frames, total_frames, "Completado")
@@ -183,8 +192,14 @@ class PadelAnalysisPipeline:
         total_frames: int,
         fps: float,
         video_codec_used: str = "mp4v",
+        default_player_names: dict[int, str] | None = None,
     ) -> PipelineResult:
         records = analytics.to_records()
+
+        # Nombre por defecto = color de camiseta detectado; no pisa nombres
+        # que el usuario ya haya puesto a mano en una corrida anterior.
+        name_store = PlayerNameStore(self.output_dir / "player_names.json")
+        name_store.set_default_names(default_player_names or {})
 
         csv_path = self.output_dir / "timeseries.csv"
         json_path = self.output_dir / "timeseries.json"

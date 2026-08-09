@@ -37,6 +37,7 @@
         <td><span class="badge {{ v.status }}">{{ v.status }}</span></td>
         <td>
           <a class="btn secondary" href="{{ url_for('calibrate_page', video_id=v.id) }}">Calibrar</a>
+          <a class="btn secondary" href="{{ url_for('players_page', video_id=v.id) }}">Jugadores</a>
           <a class="btn secondary" href="{{ url_for('points_page', video_id=v.id) }}">Marcar puntos</a>
           <a class="btn secondary" href="{{ url_for('stats_page', video_id=v.id) }}">Estadísticas</a>
           {% if v.status in ('done',) %}

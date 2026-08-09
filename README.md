@@ -19,6 +19,8 @@ padel_analytics/
   points.py              Marcado de inicio/fin de cada punto + ganador por pareja
   match_stats.py          Cruza puntos + golpes: WIN/LOSS por último toque, golpes por jugador
   identity.py              Limita el tracking a 4 jugadores estables (reidentificación espacial)
+  shirt_color.py            Detecta el color de camiseta de cada jugador (nombre por defecto)
+  player_names.py            Nombres de jugadores: color detectado, editables por el usuario
   rendering.py           FASE 4 — VideoRenderer: video doble panel + export CSV/JSON/heatmaps
   video_transcode.py       Re-codifica el video de salida a H.264 (compatible con el navegador)
   pipeline.py             Orquestador end-to-end de las 4 fases
@@ -90,8 +92,17 @@ propia PC; los videos y resultados se guardan en `data/`.
    barra de progreso muestra el avance frame a frame.
 4. **Resultados** (`/video/<id>/results` — FASE 4): video de doble panel
    (cámara anotada + minimapa 2D), heatmaps de ocupación por pareja y por
-   jugador, y descarga de la serie temporal en CSV/JSON.
-5. **Etiquetar golpes** (`/video/<id>/label`): lista los golpes detectados
+   jugador (click en cualquiera para verlo grande en un modal, con botón
+   de volver), y descarga de la serie temporal en CSV/JSON.
+5. **Jugadores** (`/video/<id>/players`): a cada jugador se le pone
+   automáticamente de nombre por defecto el color de su camiseta
+   ("Rojo", "Azul", etc.), detectado muestreando el color del torso
+   durante el procesamiento (Fases 2-4). Desde esta página podés
+   cambiarle el nombre a cualquiera de los 4 en cualquier momento — se
+   usa en el selector de jugador al etiquetar golpes, en las
+   estadísticas y en las leyendas de los heatmaps. Si reprocesás el
+   video, los nombres que ya pusiste a mano no se pisan.
+6. **Etiquetar golpes** (`/video/<id>/label`): lista los golpes detectados
    automáticamente por la heurística de trayectoria de la pelota (cambios
    bruscos de dirección cerca de un jugador) y permite corregirlos o
    agregar golpes manuales marcando el frame exacto sobre el reproductor

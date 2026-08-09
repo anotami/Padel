@@ -31,19 +31,35 @@
   <a class="btn" href="{{ url_for('label_page', video_id=video.id) }}">Ir a etiquetado de golpes</a>
   <a class="btn" href="{{ url_for('points_page', video_id=video.id) }}">Ir a marcado de puntos</a>
   <a class="btn" href="{{ url_for('stats_page', video_id=video.id) }}">Ver estadísticas</a>
+  <a class="btn" href="{{ url_for('players_page', video_id=video.id) }}">Nombres de jugadores</a>
 </div>
 
 <div class="card">
   <h2>Mapas de calor de posicionamiento</h2>
-  <p class="muted">Ocupación de pista por pareja y por jugador individual, a lo largo de todo el partido.</p>
+  <p class="muted">Ocupación de pista por pareja y por jugador individual, a lo largo de todo el partido. Click en cualquiera para verlo grande.</p>
   <div class="grid-heatmaps">
     {% for h in heatmaps %}
     <div>
-      <img class="heatmap" src="{{ url_for('media_output', video_id=video.id, filename=h) }}" alt="{{ h }}">
-      <p class="muted" style="text-align:center; margin-top:4px;">{{ h }}</p>
+      <img class="heatmap heatmap-thumb" src="{{ url_for('media_output', video_id=video.id, filename=h) }}" data-caption="{{ h }}" alt="{{ h }}" style="cursor: zoom-in;">
+      <p class="muted heatmap-caption" data-filename="{{ h }}" style="text-align:center; margin-top:4px;">{{ h }}</p>
     </div>
     {% endfor %}
   </div>
 </div>
 
+<div id="heatmapLightbox" class="lightbox-overlay" style="display:none;">
+  <div class="lightbox-content">
+    <button class="btn secondary" id="lightboxBackBtn">&larr; Volver</button>
+    <p id="lightboxCaption" class="muted" style="margin: 10px 0;"></p>
+    <img id="lightboxImage" src="" alt="Heatmap ampliado">
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.PADEL_VIDEO_ID = "{{ video.id }}";
+</script>
+<script src="{{ url_for('static', filename='js/results.js') }}"></script>
 {% endblock %}

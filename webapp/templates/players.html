@@ -1,0 +1,28 @@
+{% extends "_base.html" %}
+{% block title %}Jugadores — {{ video.original_filename }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Nombres de jugadores</h2>
+  <p class="muted">
+    Por defecto, cada jugador se nombra con el color de camiseta detectado durante el procesamiento
+    (Fases 2-4). Podés cambiarle el nombre a cualquiera de los 4 en cualquier momento — se usa en
+    etiquetado de golpes, estadísticas y en los heatmaps.
+  </p>
+  <div id="playersFlash" style="margin-top:10px;"></div>
+  <table>
+    <thead>
+      <tr><th>Jugador</th><th>Nombre actual</th><th>Nuevo nombre</th><th></th></tr>
+    </thead>
+    <tbody id="playersTableBody"></tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.PADEL_VIDEO_ID = "{{ video.id }}";
+</script>
+<script src="{{ url_for('static', filename='js/players.js') }}"></script>
+{% endblock %}

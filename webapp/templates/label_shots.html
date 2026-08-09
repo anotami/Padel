@@ -12,7 +12,9 @@
 
     <div class="shot-form">
       <label class="muted">Jugador:</label>
-      <input type="number" id="playerIdInput" min="1" max="4" placeholder="ID (opcional)" style="width:90px;">
+      <select id="playerIdSelect">
+        <option value="">(sin asignar)</option>
+      </select>
       <label class="muted">Tipo de golpe:</label>
       <select id="shotTypeSelect">
         {% for t in shot_types %}
@@ -23,6 +25,7 @@
     </div>
     <div id="labelFlash" style="margin-top:10px;"></div>
     <a class="btn secondary" href="{{ url_for('points_page', video_id=video.id) }}" style="margin-top:10px;">Ir a marcado de puntos</a>
+    <a class="btn secondary" href="{{ url_for('players_page', video_id=video.id) }}" style="margin-top:10px;">Cambiar nombres de jugadores</a>
   </div>
 
   <div class="card">

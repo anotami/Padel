@@ -9,6 +9,7 @@ Flujo de páginas:
   /video/<id>/results    -> Fase 4: video anotado, heatmaps, descargas
   /video/<id>/label      -> etiquetado manual de golpes (+ los auto-detectados)
   /video/<id>/points     -> marcado de inicio/fin de cada punto y ganador por pareja
+  /video/<id>/players    -> nombre de cada jugador (por defecto, color de camiseta)
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from padel_analytics import config, storage, video_io
 from padel_analytics.calibration import CourtCalibrator
 from padel_analytics.shot_detection import ShotLabelStore, SHOT_TYPES
 from padel_analytics.points import PointLabelStore
+from padel_analytics.player_names import PlayerNameStore
 from padel_analytics import match_stats
 
 DEFAULT_TEAM_NAMES = ["pareja_A", "pareja_B"]
@@ -73,6 +75,29 @@ def _player_teams(record: storage.VideoRecord) -> dict[str, str]:
     return _read_metadata(record).get("teams", {})
 
 
+def _player_names_path(video_id: str) -> Path:
+    return config.OUTPUTS_DIR / video_id / "player_names.json"
+
+
+def _players_list(video_id: str) -> list[dict]:
+    """
+    Lista fija de 1..MAX_PLAYERS_ON_COURT jugadores con su nombre actual:
+    el que detectó el pipeline por color de camiseta o el que puso el
+    usuario a mano (`player_names.json`), o "Jugador N" como placeholder
+    si todavía no se calculó ni se puso ninguno.
+    """
+    names = PlayerNameStore(_player_names_path(video_id)).get_names()
+    players = []
+    for pid in range(1, config.MAX_PLAYERS_ON_COURT + 1):
+        key = str(pid)
+        players.append({
+            "player_id": pid,
+            "name": names.get(key, f"Jugador {pid}"),
+            "is_placeholder": key not in names,
+        })
+    return players
+
+
 # ---------------------------------------------------------------------------
 # Páginas
 # ---------------------------------------------------------------------------
@@ -87,6 +112,12 @@ def index():
 def calibrate_page(video_id: str):
     record = _video_or_404(video_id)
     return render_template("calibrate.html", video=record)
+
+
+@app.route("/video/<video_id>/players")
+def players_page(video_id: str):
+    record = _video_or_404(video_id)
+    return render_template("players.html", video=record)
 
 
 @app.route("/video/<video_id>/results")
@@ -346,6 +377,33 @@ def _points_path(video_id: str) -> Path:
 def api_get_teams(video_id: str):
     record = _video_or_404(video_id)
     return jsonify({"teams": _team_names(record)})
+
+
+# ---------------------------------------------------------------------------
+# API: nombres de jugadores (por defecto, color de camiseta detectado)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>/players", methods=["GET"])
+def api_list_players(video_id: str):
+    _video_or_404(video_id)
+    return jsonify({"players": _players_list(video_id)})
+
+
+@app.route("/api/videos/<video_id>/players", methods=["POST"])
+def api_set_player_name(video_id: str):
+    _video_or_404(video_id)
+    payload = request.get_json(force=True)
+    player_id = payload.get("player_id")
+    name = (payload.get("name") or "").strip()
+
+    if player_id is None or not name:
+        return jsonify({"error": "Faltan campos: player_id, name."}), 400
+    if not (1 <= int(player_id) <= config.MAX_PLAYERS_ON_COURT):
+        return jsonify({"error": f"player_id debe estar entre 1 y {config.MAX_PLAYERS_ON_COURT}."}), 400
+
+    store = PlayerNameStore(_player_names_path(video_id))
+    store.set_name(int(player_id), name)
+    return jsonify({"players": _players_list(video_id)})
 
 
 @app.route("/api/videos/<video_id>/points", methods=["GET"])

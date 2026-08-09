@@ -10,9 +10,25 @@ function badge(outcome) {
   return '<span class="muted">-</span>';
 }
 
-async function loadStats() {
-  const res = await fetch(`/api/videos/${videoId}/stats`);
+async function fetchPlayerNames() {
+  const res = await fetch(`/api/videos/${videoId}/players`);
   const data = await res.json();
+  const byId = {};
+  (data.players || []).forEach((p) => { byId[p.player_id] = p.name; });
+  return byId;
+}
+
+function playerLabel(playerId, namesById) {
+  if (playerId == null) return null;
+  return namesById[playerId] || `Jugador ${playerId}`;
+}
+
+async function loadStats() {
+  const [statsRes, namesById] = await Promise.all([
+    fetch(`/api/videos/${videoId}/stats`).then((r) => r.json()),
+    fetchPlayerNames(),
+  ]);
+  const data = statsRes;
 
   document.getElementById('teamsWarning').style.display = data.teams_available ? 'none' : 'block';
 
@@ -22,7 +38,7 @@ async function loadStats() {
   } else {
     playersBody.innerHTML = data.players.map((p) => `
       <tr>
-        <td>ID ${p.player_id}</td>
+        <td>${playerLabel(p.player_id, namesById)}</td>
         <td>${p.team || '<span class="muted">-</span>'}</td>
         <td>${p.total_shots}</td>
         <td>${p.wins}</td>
@@ -40,7 +56,7 @@ async function loadStats() {
         <td>${idx + 1}</td>
         <td>${o.start_frame} - ${o.end_frame}</td>
         <td>${o.winner_team || '-'}</td>
-        <td>${o.last_touch_player_id != null ? `ID ${o.last_touch_player_id} (${o.last_touch_team || '?'})` : '<span class="muted">sin golpes registrados</span>'}</td>
+        <td>${o.last_touch_player_id != null ? `${playerLabel(o.last_touch_player_id, namesById)} (${o.last_touch_team || '?'})` : '<span class="muted">sin golpes registrados</span>'}</td>
         <td>${o.last_touch_shot_type || '<span class="muted">sin etiquetar</span>'}</td>
         <td>${badge(o.outcome_for_last_touch)}</td>
       </tr>
