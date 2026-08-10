@@ -1,5 +1,6 @@
 // Nombres de jugadores: por defecto viene el color de camiseta detectado
-// por el pipeline (player_names.json), editable a mano acá.
+// por el pipeline (player_names.json). Los 4 campos se editan juntos acá
+// y se guardan todos de una con el botón "Guardar todos los nombres".
 
 const videoId = window.PADEL_VIDEO_ID;
 
@@ -14,38 +15,39 @@ function renderTable(players) {
   tbody.innerHTML = players.map((p) => `
     <tr>
       <td>Jugador ${p.player_id}</td>
-      <td>${p.name}${p.is_placeholder ? ' <span class="muted">(sin detectar todavía)</span>' : ''}</td>
-      <td><input type="text" class="player-name-input" data-id="${p.player_id}" placeholder="ej. Rojo, Juan..."></td>
-      <td><button class="btn secondary save-btn" data-id="${p.player_id}">Guardar</button></td>
+      <td>
+        <input type="text" class="player-name-input" data-id="${p.player_id}"
+          value="${p.is_placeholder ? '' : p.name}"
+          placeholder="${p.is_placeholder ? 'ej. Rojo, Juan...' : p.name}">
+      </td>
     </tr>
   `).join('');
-
-  tbody.querySelectorAll('.save-btn').forEach((btn) => {
-    btn.addEventListener('click', () => saveName(btn.dataset.id));
-  });
 }
 
-async function saveName(playerId) {
+document.getElementById('saveAllBtn').addEventListener('click', async () => {
   const flash = document.getElementById('playersFlash');
-  const input = document.querySelector(`.player-name-input[data-id="${playerId}"]`);
-  const name = input.value.trim();
-  if (!name) {
-    flash.innerHTML = '<div class="flash error">Escribí un nombre antes de guardar.</div>';
+  const inputs = Array.from(document.querySelectorAll('.player-name-input'));
+  const toSave = inputs
+    .map((input) => ({ player_id: parseInt(input.dataset.id, 10), name: input.value.trim() }))
+    .filter((entry) => entry.name);
+
+  if (toSave.length === 0) {
+    flash.innerHTML = '<div class="flash error">Escribí al menos un nombre antes de guardar.</div>';
     return;
   }
 
-  const res = await fetch(`/api/videos/${videoId}/players`, {
+  const results = await Promise.all(toSave.map((entry) => fetch(`/api/videos/${videoId}/players`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ player_id: parseInt(playerId, 10), name }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    flash.innerHTML = `<div class="flash error">${data.error || 'Error al guardar el nombre.'}</div>`;
-    return;
+    body: JSON.stringify(entry),
+  })));
+
+  if (results.some((r) => !r.ok)) {
+    flash.innerHTML = '<div class="flash error">Hubo un error al guardar alguno de los nombres.</div>';
+  } else {
+    flash.innerHTML = '<div class="flash info">Nombres guardados.</div>';
   }
-  flash.innerHTML = '<div class="flash info">Nombre guardado.</div>';
-  renderTable(data.players);
-}
+  loadPlayers();
+});
 
 loadPlayers();

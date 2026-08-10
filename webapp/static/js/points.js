@@ -18,6 +18,13 @@ function formatTime(t) {
   return `${t.toFixed(2)}s`;
 }
 
+const teamNames = window.PADEL_TEAM_NAMES || ['pareja_A', 'pareja_B'];
+
+function winnerSelectHtml(point) {
+  const options = teamNames.map((t) => `<option value="${t}" ${t === point.winner_team ? 'selected' : ''}>${t}</option>`).join('');
+  return `<select class="winner-edit-select" data-id="${point.id}">${options}</select>`;
+}
+
 async function refreshAll() {
   const [pointsRes, summaryRes] = await Promise.all([
     fetch(`/api/videos/${videoId}/points`),
@@ -60,7 +67,11 @@ function renderPointsTable(points) {
       ? `<a href="#" class="seek-link" data-t="${p.end_timestamp_s}">${p.end_frame} (${formatTime(p.end_timestamp_s)})</a>`
       : '<span class="badge processing">en curso</span>';
     const durationCell = p.duration_s != null ? `${p.duration_s}s` : '-';
-    const winnerCell = p.winner_team || '<span class="muted">-</span>';
+    // El ganador se puede editar en cualquier momento desde acá (no sólo al
+    // cerrar el punto), por si te equivocaste o querés corregirlo después.
+    const winnerCell = p.is_closed
+      ? winnerSelectHtml(p)
+      : '<span class="muted">(en curso)</span>';
 
     tr.innerHTML = `
       <td>${idx + 1}</td>
@@ -84,6 +95,17 @@ function renderPointsTable(points) {
     btn.addEventListener('click', async () => {
       await fetch(`/api/videos/${videoId}/points/${btn.dataset.id}`, { method: 'DELETE' });
       refreshAll();
+    });
+  });
+
+  tbody.querySelectorAll('.winner-edit-select').forEach((select) => {
+    select.addEventListener('change', async () => {
+      await fetch(`/api/videos/${videoId}/points/${select.dataset.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ winner_team: select.value }),
+      });
+      refreshAll();  // el marcador (puntos por pareja) depende del ganador, hay que recalcularlo
     });
   });
 }

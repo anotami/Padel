@@ -43,6 +43,7 @@
           {% if v.status in ('done',) %}
           <a class="btn secondary" href="{{ url_for('results_page', video_id=v.id) }}">Resultados</a>
           <a class="btn secondary" href="{{ url_for('label_page', video_id=v.id) }}">Etiquetar golpes</a>
+          <a class="btn secondary" href="{{ url_for('highlights_page', video_id=v.id) }}">Highlights</a>
           {% endif %}
           {% if v.calibration_path and v.status != 'processing' %}
           <button class="btn secondary reprocess-btn" data-id="{{ v.id }}">Reprocesar</button>

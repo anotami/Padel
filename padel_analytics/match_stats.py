@@ -126,3 +126,53 @@ def player_win_loss_counts(outcomes: list[PointOutcome]) -> dict[int, dict[str, 
         entry = result.setdefault(outcome.last_touch_player_id, {"WIN": 0, "LOSS": 0})
         entry[outcome.outcome_for_last_touch] += 1
     return result
+
+
+def winners_errors_by_shot_type(outcomes: list[PointOutcome]) -> dict[str, dict[str, int]]:
+    """
+    Igual que `player_win_loss_counts` pero agrupado por tipo de golpe en
+    vez de por jugador: cuántos puntos se definieron con un smash ganador,
+    cuántos se perdieron con un error de víbora, etc. Los golpes sin
+    etiquetar (`shot_type is None`) se agrupan aparte para no perderlos.
+    """
+    result: dict[str, dict[str, int]] = {}
+    for outcome in outcomes:
+        if outcome.outcome_for_last_touch is None:
+            continue
+        shot_type = outcome.last_touch_shot_type or "sin_etiquetar"
+        entry = result.setdefault(shot_type, {"WIN": 0, "LOSS": 0})
+        entry[outcome.outcome_for_last_touch] += 1
+    return result
+
+
+def rally_stats(points: list[PointEvent], shots: list[ShotEvent], fps: float) -> dict:
+    """
+    Estadísticas agregadas de duración de los puntos (rallies): promedio,
+    mínimo, máximo y cantidad de golpes promedio por punto — la misma
+    familia de métricas ("rally length", "strokes per rally") que
+    reportan tanto las apps comerciales de pádel como los estudios de
+    rendimiento en pádel profesional.
+    """
+    closed = [p for p in points if p.is_closed and p.duration_s is not None]
+    if not closed:
+        return {
+            "count": 0,
+            "avg_duration_s": None,
+            "min_duration_s": None,
+            "max_duration_s": None,
+            "avg_shots_per_rally": None,
+        }
+
+    durations = [p.duration_s for p in closed]
+    shot_counts = [
+        sum(1 for s in shots if p.start_frame <= s.frame <= p.end_frame)
+        for p in closed
+    ]
+
+    return {
+        "count": len(closed),
+        "avg_duration_s": round(sum(durations) / len(durations), 2),
+        "min_duration_s": round(min(durations), 2),
+        "max_duration_s": round(max(durations), 2),
+        "avg_shots_per_rally": round(sum(shot_counts) / len(shot_counts), 1),
+    }

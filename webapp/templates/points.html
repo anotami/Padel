@@ -52,6 +52,7 @@
 <script>
   window.PADEL_VIDEO_ID = "{{ video.id }}";
   window.PADEL_VIDEO_FPS = {{ video.fps or 30 }};
+  window.PADEL_TEAM_NAMES = {{ team_names | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/points.js') }}"></script>
 {% endblock %}

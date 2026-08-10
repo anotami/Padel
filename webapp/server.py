@@ -10,6 +10,7 @@ Flujo de páginas:
   /video/<id>/label      -> etiquetado manual de golpes (+ los auto-detectados)
   /video/<id>/points     -> marcado de inicio/fin de cada punto y ganador por pareja
   /video/<id>/players    -> nombre de cada jugador (por defecto, color de camiseta)
+  /video/<id>/highlights -> generación de clips por punto (highlights automáticos)
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from padel_analytics.calibration import CourtCalibrator
 from padel_analytics.shot_detection import ShotLabelStore, SHOT_TYPES
 from padel_analytics.points import PointLabelStore
 from padel_analytics.player_names import PlayerNameStore
-from padel_analytics import match_stats
+from padel_analytics import match_stats, performance_stats, highlights
 
 DEFAULT_TEAM_NAMES = ["pareja_A", "pareja_B"]
 
@@ -163,6 +164,12 @@ def points_page(video_id: str):
 def stats_page(video_id: str):
     record = _video_or_404(video_id)
     return render_template("stats.html", video=record)
+
+
+@app.route("/video/<video_id>/highlights")
+def highlights_page(video_id: str):
+    record = _video_or_404(video_id)
+    return render_template("highlights.html", video=record)
 
 
 # ---------------------------------------------------------------------------
@@ -506,8 +513,20 @@ def api_delete_point(video_id: str, point_id: str):
 
 
 # ---------------------------------------------------------------------------
-# API: estadísticas derivadas (golpes por jugador + WIN/LOSS por último toque)
+# API: estadísticas derivadas (golpes, WIN/LOSS, movimiento, velocidad, rallies)
 # ---------------------------------------------------------------------------
+
+def _load_timeseries(video_id: str) -> list[dict]:
+    if not (config.OUTPUTS_DIR / video_id).exists():
+        return []
+    path = config.OUTPUTS_DIR / video_id / "timeseries.json"
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
 
 @app.route("/api/videos/<video_id>/stats")
 def api_stats(video_id: str):
@@ -516,13 +535,22 @@ def api_stats(video_id: str):
     shots = ShotLabelStore(_shots_path(video_id)).all()
     points = PointLabelStore(_points_path(video_id)).all()
     player_teams = _player_teams(record)
+    records = _load_timeseries(video_id)
+    fps = record.fps or 30.0
 
     outcomes = match_stats.compute_point_outcomes(points, shots, player_teams)
     shot_counts = match_stats.shots_per_player(shots)
     win_loss = match_stats.player_win_loss_counts(outcomes)
+    movement = performance_stats.player_movement_stats(records, fps)
 
-    # Unimos golpes totales + WIN/LOSS en una sola fila por jugador para la tabla del frontend.
-    player_ids = sorted(set(shot_counts) | set(win_loss))
+    geometry = config.CourtGeometry()  # dimensiones reales de pádel (10x20m), no depende de la calibración
+    coverage_by_player = {
+        pid: performance_stats.court_coverage_pct(records, geometry, player_ids=[pid])
+        for pid in set(shot_counts) | set(win_loss) | set(movement)
+    }
+
+    # Unimos golpes totales + WIN/LOSS + movimiento + cobertura en una sola fila por jugador.
+    player_ids = sorted(set(shot_counts) | set(win_loss) | set(movement))
     players_table = [
         {
             "player_id": pid,
@@ -530,15 +558,120 @@ def api_stats(video_id: str):
             "wins": win_loss.get(pid, {}).get("WIN", 0),
             "losses": win_loss.get(pid, {}).get("LOSS", 0),
             "team": player_teams.get(str(pid)),
+            "distance_m": movement.get(pid, {}).get("distance_m", 0),
+            "avg_speed_kmh": movement.get(pid, {}).get("avg_speed_kmh", 0),
+            "max_speed_kmh": movement.get(pid, {}).get("max_speed_kmh", 0),
+            "sprints": movement.get(pid, {}).get("sprints", 0),
+            "court_coverage_pct": coverage_by_player.get(pid, 0.0),
         }
         for pid in player_ids
+    ]
+
+    # Velocidad de la pelota por golpe: top 5 más rápidos, para un "ranking de potencia".
+    ball_speeds = performance_stats.compute_ball_speeds_for_shots(records, shots, fps)
+    shots_by_id = {s.id: s for s in shots}
+    top_ball_speeds = sorted(ball_speeds.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    top_ball_speeds_table = [
+        {
+            "shot_id": shot_id,
+            "speed_kmh": speed,
+            "frame": shots_by_id[shot_id].frame,
+            "timestamp_s": shots_by_id[shot_id].timestamp_s,
+            "player_id": shots_by_id[shot_id].player_id,
+            "shot_type": shots_by_id[shot_id].shot_type,
+        }
+        for shot_id, speed in top_ball_speeds
+        if shot_id in shots_by_id
     ]
 
     return jsonify({
         "players": players_table,
         "point_outcomes": [o.to_dict() for o in outcomes],
         "teams_available": bool(player_teams),
+        "rally_stats": match_stats.rally_stats(points, shots, fps),
+        "winners_errors_by_shot_type": match_stats.winners_errors_by_shot_type(outcomes),
+        "top_ball_speeds": top_ball_speeds_table,
     })
+
+
+# ---------------------------------------------------------------------------
+# API: highlights automáticos (clips por punto)
+# ---------------------------------------------------------------------------
+
+def _highlights_dir(video_id: str) -> Path:
+    return config.OUTPUTS_DIR / video_id / "highlights"
+
+
+def _highlight_clip_info(video_id: str, point) -> dict:
+    clip_path = _highlights_dir(video_id) / highlights.clip_filename(point.id)
+    info = point.to_dict()
+    info["clip_exists"] = clip_path.exists()
+    info["clip_url"] = (
+        f"/media/highlights/{video_id}/{highlights.clip_filename(point.id)}"
+        if clip_path.exists() else None
+    )
+    return info
+
+
+@app.route("/api/videos/<video_id>/highlights", methods=["GET"])
+def api_list_highlights(video_id: str):
+    _video_or_404(video_id)
+    points = PointLabelStore(_points_path(video_id)).all()
+    closed = [p for p in points if p.is_closed]
+    closed.sort(key=lambda p: p.duration_s or 0, reverse=True)
+    return jsonify([_highlight_clip_info(video_id, p) for p in closed])
+
+
+@app.route("/api/videos/<video_id>/highlights/generate", methods=["POST"])
+def api_generate_highlight(video_id: str):
+    record = _video_or_404(video_id)
+    if record.status != "done":
+        return jsonify({"error": "El video todavía no fue procesado (necesita el video anotado)."}), 400
+
+    payload = request.get_json(force=True)
+    point_id = payload.get("point_id")
+    store = PointLabelStore(_points_path(video_id))
+    point = next((p for p in store.all() if p.id == point_id), None)
+    if point is None or not point.is_closed:
+        return jsonify({"error": "Punto no encontrado o todavía abierto."}), 404
+
+    source_video = Path(record.output_dir) / "output_annotated.mp4"
+    output_path = _highlights_dir(video_id) / highlights.clip_filename(point.id)
+    ok = highlights.cut_clip(source_video, point.start_timestamp_s, point.end_timestamp_s, output_path)
+    if not ok:
+        return jsonify({"error": "No se pudo generar el clip (¿falta imageio-ffmpeg?)."}), 500
+
+    return jsonify(_highlight_clip_info(video_id, point))
+
+
+@app.route("/api/videos/<video_id>/highlights/generate_top", methods=["POST"])
+def api_generate_top_highlights(video_id: str):
+    record = _video_or_404(video_id)
+    if record.status != "done":
+        return jsonify({"error": "El video todavía no fue procesado (necesita el video anotado)."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    top_n = int(payload.get("top_n", 5))
+
+    points = PointLabelStore(_points_path(video_id)).all()
+    top_points = highlights.select_top_rallies(points, top_n=top_n)
+
+    source_video = Path(record.output_dir) / "output_annotated.mp4"
+    results = []
+    for point in top_points:
+        output_path = _highlights_dir(video_id) / highlights.clip_filename(point.id)
+        highlights.cut_clip(source_video, point.start_timestamp_s, point.end_timestamp_s, output_path)
+        results.append(_highlight_clip_info(video_id, point))
+
+    return jsonify(results)
+
+
+@app.route("/media/highlights/<video_id>/<path:filename>")
+def media_highlight(video_id: str, filename: str):
+    _video_or_404(video_id)
+    if not SAFE_FILENAME_RE.match(Path(filename).name) or filename != Path(filename).name:
+        abort(400)
+    return send_from_directory(_highlights_dir(video_id), filename)
 
 
 # ---------------------------------------------------------------------------

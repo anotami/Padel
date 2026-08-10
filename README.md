@@ -17,7 +17,11 @@ padel_analytics/
   coordinates.py        FASE 3 — CoordinateTransformer + AnalyticsEngine: proyección 2D + heatmaps
   shot_detection.py     Detección heurística de golpes + almacenamiento de etiquetas
   points.py              Marcado de inicio/fin de cada punto + ganador por pareja
-  match_stats.py          Cruza puntos + golpes: WIN/LOSS por último toque, golpes por jugador
+  match_stats.py          Cruza puntos + golpes: WIN/LOSS por último toque, golpes por jugador,
+                            estadísticas de rally, winners/errores por tipo de golpe
+  performance_stats.py     Distancia recorrida, velocidad, sprints, cobertura de cancha,
+                            velocidad de la pelota en cada golpe
+  highlights.py             Recorte automático de clips de video por punto (ffmpeg)
   identity.py              Limita el tracking a 4 jugadores estables (reidentificación espacial)
   shirt_color.py            Detecta el color de camiseta de cada jugador (nombre por defecto)
   player_names.py            Nombres de jugadores: color detectado, editables por el usuario
@@ -117,25 +121,42 @@ propia PC; los videos y resultados se guardan en `data/`.
    botón "Marcar inicio de punto" registra el frame donde arranca el rally;
    cuando termina, "Marcar fin de punto" te pide elegir qué pareja lo ganó
    (y opcionalmente una nota). Sólo puede haber un punto abierto a la vez.
-   La página muestra el marcador acumulado (puntos ganados por cada pareja),
-   la duración promedio del rally, y la lista completa de puntos — cada uno
-   clickeable para saltar el video a ese instante. Esto sirve para poder
-   filtrar después cualquier otra analítica (posiciones, golpes, heatmaps)
-   al rango de frames de un punto específico, sin tener que cortar el video
-   en clips separados. Se puede usar en cualquier momento, no hace falta
-   esperar a que termine el procesamiento de YOLOv8.
+   El ganador de cualquier punto ya cerrado se puede **corregir en
+   cualquier momento** desde el mismo listado (un selector por fila, sin
+   tener que borrar y re-marcar). La página muestra el marcador acumulado
+   (puntos ganados por cada pareja), la duración promedio del rally, y la
+   lista completa de puntos — cada uno clickeable para saltar el video a
+   ese instante. Esto sirve para poder filtrar después cualquier otra
+   analítica (posiciones, golpes, heatmaps) al rango de frames de un punto
+   específico, sin tener que cortar el video en clips separados. Se puede
+   usar en cualquier momento, no hace falta esperar a que termine el
+   procesamiento de YOLOv8.
 7. **Estadísticas** (`/video/<id>/stats`): cruza automáticamente los puntos
    marcados con los golpes registrados. Por cada punto cerrado, toma el
    golpe con el frame más alto dentro de su rango como "el último que tocó
    la pelota" y lo marca **WIN** si esa persona pertenecía a la pareja que
    ganó el punto (golpe ganador) o **LOSS** si pertenecía a la pareja que
    lo perdió (error propio, forzado o no forzado) — la misma convención que
-   se usa en estadísticas de pádel/tenis. También muestra el conteo total
-   de golpes por jugador (no hace falta haber marcado puntos para ver esto
-   último). Para que se calculen los equipos y por lo tanto el WIN/LOSS,
-   el video tiene que haber sido procesado al menos una vez (Fases 2-4);
-   los golpes por jugador se calculan igual sin procesar, si los cargaste
-   a mano.
+   se usa en estadísticas de pádel/tenis. También calcula, inspirado en lo
+   que ofrecen plataformas comerciales de análisis de pádel (Padelytics,
+   Padmi, GameCam, PlaySight):
+   - **Distancia recorrida y velocidad** (media/máxima, km/h) por jugador,
+     y conteo de **sprints**, a partir de la posición 2D frame a frame.
+   - **Cobertura de cancha** (% de la pista donde estuvo cada jugador).
+   - **Velocidad de la pelota** en cada golpe (ranking de los más rápidos).
+   - **Duración de los rallies** (promedio/mín/máx) y golpes promedio por punto.
+   - **Winners vs. errores por tipo de golpe** (ej. cuántos puntos definió
+     un smash ganador vs. cuántos se perdieron por error de víbora).
+
+   El conteo de golpes por jugador se calcula igual sin procesar el video
+   (si cargaste golpes a mano); todo lo demás necesita que el video haya
+   sido procesado al menos una vez (Fases 2-4).
+8. **Highlights** (`/video/<id>/highlights`): recorta automáticamente el
+   video anotado en un clip por punto (con ~1s de margen antes/después),
+   la misma idea que ofrecen PlaySight/Padmi/GameCam como su feature
+   estrella. Un botón genera de una los clips de los 5 rallies más largos;
+   cada punto también se puede recortar individualmente. Los clips quedan
+   reproducibles en el navegador y con enlace de descarga directa.
 
 ## 4. Uso también como librería (sin la webapp)
 
@@ -239,6 +260,38 @@ print(result.heatmap_paths)         # heatmaps PNG por pareja/jugador
   a un jugador para descartar rebotes en pared/piso. Es un punto de
   partida razonable sin entrenar un clasificador; el usuario confirma o
   corrige cada golpe desde la webapp.
+- **Distancia/velocidad/sprints**: se derivan de la distancia euclidiana
+  entre posiciones 2D consecutivas del mismo jugador, dividida por el
+  tiempo entre esos frames. Se descartan pasos con distancia o velocidad
+  físicamente imposibles (saltos de identidad, no movimiento real) para
+  que no infle la distancia total ni la velocidad máxima.
+- **Highlights**: recorte con el binario de FFmpeg de `imageio-ffmpeg`
+  (mismo que usa `video_transcode.py`), re-codificando en vez de copiar
+  el stream, para que el corte sea preciso al segundo pedido.
+
+### Qué quedó afuera (y por qué)
+
+Investigué varias plataformas comerciales de análisis de pádel
+(Padelytics, Padmi, PlaySight, SPASH Match Analyzer, GameCam, Padelplay)
+antes de agregar las funciones de arriba. Dejé afuera, a propósito:
+
+- **Sensor de pala** (Padelplay): requiere hardware dedicado que este
+  proyecto no asume que tengas.
+- **Clasificación automática del tipo de golpe por visión** (bandeja,
+  víbora, smash como categorías detectadas por un modelo, no elegidas a
+  mano): necesitaría entrenar un clasificador con un dataset de golpes de
+  pádel etiquetado, que no existe en este repo. Mientras tanto, la
+  heurística de `shot_detection.py` + el etiquetado manual cubren buena
+  parte de ese caso de uso.
+- **Comparación de rendimiento entre partidos / perfil de jugador en el
+  tiempo**: cada video es independiente y los nombres de jugador son por
+  video, así que no hay todavía una forma confiable de saber que el
+  "Rojo" del partido de hoy es la misma persona que el "Rojo" del de la
+  semana pasada. Se podría agregar definiendo cómo vincular identidades
+  entre videos.
+- **Calorías quemadas**: es más un gancho de marketing que una métrica
+  analítica rigurosa (depende de peso, edad, condición física reales del
+  jugador, que no tenemos), así que no se implementó.
 
 ## 6. Sobre GitHub Pages
 

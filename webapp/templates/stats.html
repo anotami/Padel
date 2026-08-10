@@ -17,15 +17,44 @@
     jugador sí se muestran, pero no se puede calcular WIN/LOSS por último toque hasta procesarlo.
   </div>
   <a class="btn secondary" href="{{ url_for('players_page', video_id=video.id) }}">Cambiar nombres de jugadores</a>
+  <a class="btn secondary" href="{{ url_for('highlights_page', video_id=video.id) }}">Ver highlights</a>
 </div>
 
 <div class="card">
-  <h3>Golpes y definición de puntos por jugador</h3>
+  <h3>Golpes, movimiento y definición de puntos por jugador</h3>
+  <p class="muted">Distancia, velocidad y sprints se calculan a partir de la posición 2D proyectada frame a frame; cobertura es el % de la pista donde el jugador estuvo parado en algún momento.</p>
+  <div style="overflow-x:auto;">
   <table>
     <thead>
-      <tr><th>Jugador</th><th>Pareja</th><th>Golpes totales</th><th>WIN (golpe ganador)</th><th>LOSS (error propio)</th></tr>
+      <tr>
+        <th>Jugador</th><th>Pareja</th><th>Golpes</th><th>WIN</th><th>LOSS</th>
+        <th>Distancia (m)</th><th>Vel. media</th><th>Vel. máx.</th><th>Sprints</th><th>Cobertura</th>
+      </tr>
     </thead>
     <tbody id="playersTableBody"></tbody>
+  </table>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <h3>Puntos (rallies)</h3>
+    <div id="rallyStatsBody" class="muted">Cargando...</div>
+  </div>
+  <div class="card">
+    <h3>Golpes más rápidos</h3>
+    <table>
+      <thead><tr><th>Jugador</th><th>Tipo</th><th>Velocidad</th></tr></thead>
+      <tbody id="ballSpeedsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Winners / errores por tipo de golpe</h3>
+  <table>
+    <thead><tr><th>Tipo de golpe</th><th>Winners</th><th>Errores</th></tr></thead>
+    <tbody id="shotTypeOutcomesBody"></tbody>
   </table>
 </div>
 

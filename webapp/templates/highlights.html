@@ -1,0 +1,34 @@
+{% extends "_base.html" %}
+{% block title %}Highlights — {{ video.original_filename }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>Highlights automáticos</h2>
+  <p class="muted">
+    Genera clips recortados del video anotado para cada punto marcado
+    (<a href="{{ url_for('points_page', video_id=video.id) }}">marcá puntos acá</a> si todavía no lo hiciste).
+    Los clips se recortan con 1 segundo de margen antes/después del rally.
+  </p>
+  {% if video.status != 'done' %}
+  <div class="flash error">Este video todavía no fue procesado — hace falta el video anotado para poder generar clips.</div>
+  {% endif %}
+  <div class="shot-form">
+    <button class="btn" id="generateTopBtn" {{ 'disabled' if video.status != 'done' else '' }}>Generar los 5 mejores puntos (rallies más largos)</button>
+  </div>
+  <div id="highlightsFlash" style="margin-top:10px;"></div>
+</div>
+
+<div class="card">
+  <h3>Puntos</h3>
+  <div class="grid-heatmaps" id="highlightsGrid"></div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.PADEL_VIDEO_ID = "{{ video.id }}";
+  window.PADEL_VIDEO_STATUS = "{{ video.status }}";
+</script>
+<script src="{{ url_for('static', filename='js/highlights.js') }}"></script>
+{% endblock %}
