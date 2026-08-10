@@ -173,6 +173,13 @@ print(result.heatmap_paths)         # heatmaps PNG por pareja/jugador
   libertad de la transformación proyectiva a partir de 4 correspondencias
   de puntos (cámara → cenital). Se asume que la pista es plana, lo cual es
   válido en pádel real.
+- **Ejes del plano cenital**: por convención, X = ancho de la pista (0 a
+  10m, lateral a lateral) e Y = largo (0 a 20m, fondo a fondo) — la red
+  queda como línea horizontal a mitad del eje Y. Todo el sistema
+  (`CoordinateTransformer`, heatmaps, minimapa embebido, `infer_teams`)
+  usa esta misma convención, así que el minimapa y los heatmaps salen
+  siempre "verticales" (más alto que ancho), como un diagrama de cancha
+  visto de pie.
 - **Punto de proyección del jugador**: se usa el centro-inferior del
   bounding box ("foot point"), no el centro, para minimizar el error de
   paralaje causado por la altura de la persona.
@@ -207,7 +214,23 @@ print(result.heatmap_paths)         # heatmaps PNG por pareja/jugador
 - **Tracking de pelota**: no se usa ByteTrack (pensado para múltiples
   objetos tipo persona) sino un filtro de Kalman de velocidad constante,
   porque la pelota es un único objeto muy rápido y con detecciones
-  intermitentes (motion blur en los golpes fuertes).
+  intermitentes (motion blur en los golpes fuertes). Dos afinamientos:
+  tolera hasta 30 frames seguidos sin detección antes de dar la pelota
+  por perdida (bridging de gaps largos por motion blur), y descarta como
+  outlier cualquier detección que aparezca muy lejos de donde el filtro
+  predice que debería estar (gating), para poder bajar el umbral de
+  confianza del detector — y así perder menos detecciones reales — sin
+  que eso meta falsos positivos (líneas de la cancha, gorras) en la
+  trayectoria.
+- **Recall de jugadores lejanos y de la pelota**: YOLOv8 corre con
+  `imgsz=960` (en vez del default de 640) para que objetos chicos en la
+  imagen —el jugador más lejos de cámara, la pelota— ocupen más píxeles
+  y el detector los vea mejor, y con el modelo `yolov8s` en vez de
+  `yolov8n` (más preciso; como el análisis es offline, no en vivo, vale
+  la pena pagar el costo extra de cómputo). Los umbrales de confianza
+  también se bajaron a propósito (recall por sobre precisión bruta), ya
+  que el filtrado espacial, el tope de 4 jugadores y el gating de la
+  pelota ya se encargan de limpiar falsos positivos.
 - **Heatmaps**: matriz de ocupación 2D (`np.histogram2d`) sobre las
   posiciones proyectadas en metros, agregada por pareja (según el lado de
   la red donde jugó cada ID en promedio) y por jugador individual.

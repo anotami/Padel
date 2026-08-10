@@ -17,6 +17,7 @@ Este módulo integra:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import cv2
@@ -88,9 +89,22 @@ class BallKalmanTracker:
     Filtro de Kalman de velocidad constante (estado = [x, y, vx, vy]) para
     suavizar y predecir la posición de la pelota cuando el detector falla
     (motion blur en los golpes fuertes es habitual en pádel).
+
+    Dos mejoras sobre un Kalman básico, pensadas para poder bajar el
+    umbral de confianza del detector (más recall) sin que eso arruine el
+    tracking con falsos positivos:
+
+    1. Gating de outliers: si llega una detección muy lejos de donde el
+       filtro predice que debería estar la pelota, se descarta como
+       probable falso positivo (una línea blanca de la cancha, una gorra,
+       el reflejo de una luz) en vez de "teletransportar" el tracker ahí.
+    2. Tolerancia a gaps más alta (`max_misses_before_reset`): la pelota
+       puede perderse varios frames seguidos por motion blur en un golpe
+       fuerte; con más margen se sigue prediciendo su posición en vez de
+       darla por perdida antes de tiempo.
     """
 
-    def __init__(self):
+    def __init__(self, max_misses_before_reset: int = 30, max_jump_px: float = 350.0):
         self.kf = cv2.KalmanFilter(4, 2)
         self.kf.measurementMatrix = np.array(
             [[1, 0, 0, 0], [0, 1, 0, 0]], dtype=np.float32
@@ -98,34 +112,41 @@ class BallKalmanTracker:
         self.kf.transitionMatrix = np.array(
             [[1, 0, 1, 0], [0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]], dtype=np.float32
         )
-        self.kf.processNoiseCov = np.eye(4, dtype=np.float32) * 1e-2
+        self.kf.processNoiseCov = np.eye(4, dtype=np.float32) * 5e-2
         self.kf.measurementNoiseCov = np.eye(2, dtype=np.float32) * 1e-1
         self._initialized = False
         self.misses = 0
-        self.max_misses_before_reset = 15  # ~0.5s a 30fps sin detecciones -> se descarta la predicción
+        self.max_misses_before_reset = max_misses_before_reset
+        self.max_jump_px = max_jump_px
 
     def update(self, measurement_xy: tuple[float, float] | None) -> tuple[float, float] | None:
-        if measurement_xy is None:
-            if not self._initialized:
-                return None
-            self.misses += 1
-            if self.misses > self.max_misses_before_reset:
-                self._initialized = False
-                return None
-            predicted = self.kf.predict()
-            return float(predicted[0, 0]), float(predicted[1, 0])
-
-        x, y = measurement_xy
         if not self._initialized:
+            if measurement_xy is None:
+                return None
+            x, y = measurement_xy
             self.kf.statePre = np.array([[x], [y], [0], [0]], dtype=np.float32)
             self.kf.statePost = np.array([[x], [y], [0], [0]], dtype=np.float32)
             self._initialized = True
             self.misses = 0
             return x, y
 
+        predicted = self.kf.predict()
+        predicted_xy = (float(predicted[0, 0]), float(predicted[1, 0]))
+
+        if measurement_xy is not None:
+            jump = math.dist(measurement_xy, predicted_xy)
+            if jump > self.max_jump_px:
+                measurement_xy = None  # probable falso positivo: se ignora, no se corrige con esto
+
+        if measurement_xy is None:
+            self.misses += 1
+            if self.misses > self.max_misses_before_reset:
+                self._initialized = False
+                return None
+            return predicted_xy
+
         self.misses = 0
-        self.kf.predict()
-        corrected = self.kf.correct(np.array([[x], [y]], dtype=np.float32))
+        corrected = self.kf.correct(np.array([[measurement_xy[0]], [measurement_xy[1]]], dtype=np.float32))
         return float(corrected[0, 0]), float(corrected[1, 0])
 
 
@@ -142,6 +163,7 @@ class PadelTracker:
         person_conf_threshold: float = config.DEFAULT_PERSON_CONF_THRESHOLD,
         ball_conf_threshold: float = config.DEFAULT_BALL_CONF_THRESHOLD,
         max_players: int = config.MAX_PLAYERS_ON_COURT,
+        imgsz: int = config.DEFAULT_YOLO_IMGSZ,
         device: str | None = None,
     ):
         # Imports pesados (torch/ultralytics/supervision) se hacen acá adentro
@@ -153,6 +175,7 @@ class PadelTracker:
 
         self.model = YOLO(weights_path)
         self.device = device
+        self.imgsz = imgsz
         self._sv = sv
         self.tracker = sv.ByteTrack()
 
@@ -172,6 +195,7 @@ class PadelTracker:
             frame,
             classes=[config.COCO_PERSON_CLASS_ID, config.COCO_BALL_CLASS_ID],
             conf=min(self.person_conf_threshold, self.ball_conf_threshold),
+            imgsz=self.imgsz,
             verbose=False,
             device=self.device,
         )[0]

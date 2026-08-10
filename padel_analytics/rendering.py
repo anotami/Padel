@@ -56,6 +56,10 @@ class CourtMinimapRenderer:
         red al medio del eje largo, y líneas de servicio a 3m de cada red)
         sobre el lienzo del minimapa. Sirve de fondo estático que se
         reutiliza (copy()) en cada frame para no redibujar todo cada vez.
+
+        Plano cenital "de pie" (ver CourtGeometry): X = ancho (10m,
+        horizontal), Y = largo (20m, vertical) -> la red es una línea
+        HORIZONTAL a mitad del eje Y, no vertical.
         """
         w, h = self.geometry.width_px, self.geometry.height_px
         scale = self.geometry.scale_px_per_m
@@ -67,16 +71,16 @@ class CourtMinimapRenderer:
         # Perímetro
         cv2.rectangle(canvas, (0, 0), (w - 1, h - 1), line_color, thickness)
 
-        # Red (mitad del eje largo, 20m -> línea vertical en x=10m)
-        net_x = int(self.geometry.length_m / 2 * scale)
-        cv2.line(canvas, (net_x, 0), (net_x, h), line_color, thickness)
+        # Red (mitad del eje largo, 20m -> línea horizontal en y=10m)
+        net_y = int(self.geometry.length_m / 2 * scale)
+        cv2.line(canvas, (0, net_y), (w, net_y), line_color, thickness)
 
         # Líneas de servicio, reglamentariamente a 3m de la red hacia cada lado
         service_offset_px = int(3.0 * scale)
         for direction in (-1, 1):
-            x = net_x + direction * service_offset_px
-            if 0 <= x < w:
-                cv2.line(canvas, (x, 0), (x, h), line_color, 1)
+            y = net_y + direction * service_offset_px
+            if 0 <= y < h:
+                cv2.line(canvas, (0, y), (w, y), line_color, 1)
 
         return canvas
 
@@ -130,15 +134,34 @@ class VideoRenderer:
         fps: float,
         geometry: CourtGeometry,
         trail_length: int = 20,
-        minimap_scale: float = 0.42,
+        minimap_max_height_frac: float = 0.45,
+        minimap_max_width_frac: float = 0.32,
         fourcc: str | None = None,
     ):
         self.output_path = Path(output_path)
         self.frame_width, self.frame_height = frame_size
         self.fps = fps
         self.minimap = CourtMinimapRenderer(geometry)
-        self.minimap_width = int(self.minimap.geometry.width_px * minimap_scale)
-        self.minimap_height = int(self.minimap.geometry.height_px * minimap_scale)
+
+        # El minimapa de una pista de pádel es "vertical" (10m de ancho x
+        # 20m de largo, aspect ratio 1:2). En vez de escalarlo con un
+        # factor fijo (que podía no entrar en el frame según su
+        # resolución/orientación), se calcula el tamaño más grande que
+        # respeta ese aspect ratio y entra dentro de los topes máximos
+        # (fracción del frame), para que siempre quede embebido sin
+        # desbordar el video, sea cual sea su resolución.
+        court_aspect = self.minimap.geometry.width_px / self.minimap.geometry.height_px
+        max_height = int(self.frame_height * minimap_max_height_frac)
+        max_width = int(self.frame_width * minimap_max_width_frac)
+
+        height = max_height
+        width = int(height * court_aspect)
+        if width > max_width:
+            width = max_width
+            height = int(width / court_aspect)
+
+        self.minimap_width = max(width, 40)
+        self.minimap_height = max(height, 40)
 
         self._trails: dict[int, deque] = defaultdict(lambda: deque(maxlen=trail_length))
 
@@ -260,21 +283,25 @@ def export_heatmap_image(grid: np.ndarray, geometry: CourtGeometry, path: str | 
     superpuesta al contorno de la pista para dar contexto espacial.
     Import de matplotlib es local para no forzar la dependencia si sólo
     se usa la parte de tracking/CSV.
+
+    Misma convención de ejes que CourtGeometry: X = ancho (10m), Y = largo
+    (20m) -> imagen vertical, con la red como línea horizontal a mitad de
+    altura, igual que el minimapa incrustado en el video.
     """
     import matplotlib
     matplotlib.use("Agg")  # backend sin GUI, apto para server/headless
     import matplotlib.pyplot as plt
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    extent = [0, geometry.length_m, geometry.width_m, 0]  # y invertido para que 0 quede "arriba" visualmente
+    fig, ax = plt.subplots(figsize=(5, 9))
+    extent = [0, geometry.width_m, geometry.length_m, 0]  # y invertido para que 0 quede "arriba" visualmente
     im = ax.imshow(grid, extent=extent, cmap="inferno", aspect="auto", interpolation="bilinear")
 
-    net_x = geometry.length_m / 2
-    ax.axvline(net_x, color="white", linewidth=1.5, linestyle="--")
-    ax.set_xlim(0, geometry.length_m)
-    ax.set_ylim(geometry.width_m, 0)
-    ax.set_xlabel("Longitud de pista (m)")
-    ax.set_ylabel("Ancho de pista (m)")
+    net_y = geometry.length_m / 2
+    ax.axhline(net_y, color="white", linewidth=1.5, linestyle="--")
+    ax.set_xlim(0, geometry.width_m)
+    ax.set_ylim(geometry.length_m, 0)
+    ax.set_xlabel("Ancho de pista (m)")
+    ax.set_ylabel("Longitud de pista (m)")
     if title:
         ax.set_title(title)
     fig.colorbar(im, ax=ax, label="Densidad de ocupación")

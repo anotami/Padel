@@ -68,13 +68,13 @@ class AnalyticsEngine:
     y deriva analítica táctica: heatmaps de ocupación y series temporales.
     """
 
-    def __init__(self, calibrator: CourtCalibrator, fps: float = 30.0, heatmap_bins: tuple[int, int] = (40, 20)):
+    def __init__(self, calibrator: CourtCalibrator, fps: float = 30.0, heatmap_bins: tuple[int, int] = (20, 40)):
         self.transformer = CoordinateTransformer(calibrator)
         self.geometry = calibrator.geometry
         self.fps = fps
 
         # bins del histograma 2D usado para el heatmap: (bins_x, bins_y).
-        # 40x20 sobre una pista de 20x10m -> celdas de 0.5m x 0.5m.
+        # X=ancho (10m), Y=largo (20m) -> 20x40 da celdas de 0.5m x 0.5m.
         self.heatmap_bins = heatmap_bins
 
         self.rows: list[TimeSeriesRow] = []
@@ -114,12 +114,17 @@ class AnalyticsEngine:
         respecto al eje largo de la pista (donde está la red, a mitad de
         los 20m). Esto es una heurística geométrica simple: en pádel cada
         pareja juega de un lado fijo de la red durante el punto.
+
+        Convención de ejes (ver CourtGeometry): la coordenada Y es la que
+        recorre el largo de la pista (fondo -> frente, 0 a length_m) y por
+        lo tanto la que separa los dos lados de la red; X es el ancho
+        (lateral a lateral) y no sirve para esto.
         """
-        net_x_m = self.geometry.length_m / 2.0
+        net_y_m = self.geometry.length_m / 2.0
         teams: dict[int, str] = {}
         for player_id, positions in self._positions_by_player.items():
-            avg_x = float(np.mean([p[0] for p in positions]))
-            teams[player_id] = "pareja_A" if avg_x < net_x_m else "pareja_B"
+            avg_y = float(np.mean([p[1] for p in positions]))
+            teams[player_id] = "pareja_A" if avg_y < net_y_m else "pareja_B"
         return teams
 
     # ------------------------------------------------------------------
@@ -148,11 +153,12 @@ class AnalyticsEngine:
         xs = np.array([p[0] for p in positions])
         ys = np.array([p[1] for p in positions])
 
+        # X = ancho de la pista (0..width_m), Y = largo de la pista (0..length_m) — ver CourtGeometry.
         bins_x, bins_y = self.heatmap_bins
         hist, _, _ = np.histogram2d(
             xs, ys,
             bins=[bins_x, bins_y],
-            range=[[0, self.geometry.length_m], [0, self.geometry.width_m]],
+            range=[[0, self.geometry.width_m], [0, self.geometry.length_m]],
         )
         # transponemos para que quede en orden (fila=Y, columna=X), convención
         # estándar para visualizar con imshow/matplotlib.
