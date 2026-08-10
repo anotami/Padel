@@ -308,3 +308,125 @@ def export_heatmap_image(grid: np.ndarray, geometry: CourtGeometry, path: str | 
     fig.tight_layout()
     fig.savefig(str(path), dpi=140)
     plt.close(fig)
+
+
+# Estilo por defecto de cada grupo en export_scatter_plot: color/marcador/etiqueta.
+SCATTER_STYLE_WIN_LOSS = {
+    "WIN": {"color": "#3ddc97", "marker": "o", "label": "Winners"},
+    "LOSS": {"color": "#ef5350", "marker": "X", "label": "Errores"},
+}
+
+
+def export_scatter_plot(
+    groups: dict[str, list[tuple[float, float]]],
+    geometry: CourtGeometry,
+    path,
+    title: str = "",
+    styles: dict[str, dict] | None = None,
+) -> None:
+    """
+    Puntos discretos (no densidad) sobre el dibujo de la pista — para mapas
+    de eficacia por zona (winners/errores) o colocación de saques, donde
+    interesa ver cada evento por separado más que una densidad agregada.
+    `path` puede ser una ruta de archivo o un buffer tipo archivo (para
+    servir la imagen directamente por HTTP sin escribirla a disco antes).
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    styles = styles or {}
+    fig, ax = plt.subplots(figsize=(5, 9))
+    ax.set_facecolor("#12331f")
+
+    ax.add_patch(plt.Rectangle(
+        (0, 0), geometry.width_m, geometry.length_m, fill=False, edgecolor="white", linewidth=2
+    ))
+    net_y = geometry.length_m / 2
+    ax.axhline(net_y, color="white", linewidth=1.5, linestyle="--")
+
+    any_points = False
+    for key, points in groups.items():
+        if not points:
+            continue
+        any_points = True
+        style = styles.get(key, {})
+        xs, ys = zip(*points)
+        ax.scatter(
+            xs, ys,
+            label=f"{style.get('label', key)} ({len(points)})",
+            color=style.get("color"),
+            marker=style.get("marker", "o"),
+            s=70, edgecolors="black", linewidths=0.8, zorder=3,
+        )
+
+    ax.set_xlim(-0.5, geometry.width_m + 0.5)
+    ax.set_ylim(geometry.length_m + 0.5, -0.5)
+    ax.set_xlabel("Ancho de pista (m)")
+    ax.set_ylabel("Longitud de pista (m)")
+    if title:
+        ax.set_title(title)
+    if any_points:
+        ax.legend(loc="upper right", fontsize=8, framealpha=0.9)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+
+
+def export_momentum_chart(timeline: list[dict], path, title: str = "") -> None:
+    """
+    Marcador acumulado punto a punto: una línea por pareja, para ver de un
+    vistazo quién viene dominando el partido y en qué tramos hubo rachas.
+    `timeline` es la salida de `momentum_stats.momentum_timeline`.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+
+    if not timeline:
+        ax.text(0.5, 0.5, "Sin puntos confirmados todavía", ha="center", va="center", transform=ax.transAxes)
+    else:
+        teams = sorted({team for entry in timeline for team in entry["scores"].keys()})
+        colors = ["#3ddc97", "#f2b134", "#5b8def", "#ef5350"]
+        for i, team in enumerate(teams):
+            xs = [entry["point_index"] for entry in timeline]
+            ys = [entry["scores"].get(team, 0) for entry in timeline]
+            ax.step(xs, ys, where="post", label=team, color=colors[i % len(colors)], linewidth=2.2)
+
+        ax.set_xlabel("Punto del partido (orden cronológico)")
+        ax.set_ylabel("Puntos acumulados")
+        ax.legend(loc="upper left", fontsize=9)
+        ax.grid(True, alpha=0.25)
+
+    if title:
+        ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+
+
+def export_rally_duration_histogram(buckets: list[dict], path, title: str = "") -> None:
+    """Distribución de duración de rallies como gráfico de barras. `buckets` es la salida de `rally_duration_histogram`."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+
+    if not buckets:
+        ax.text(0.5, 0.5, "Sin puntos confirmados todavía", ha="center", va="center", transform=ax.transAxes)
+    else:
+        labels = [b["bucket_label"] for b in buckets]
+        counts = [b["count"] for b in buckets]
+        ax.bar(labels, counts, color="#3ddc97", edgecolor="black", linewidth=0.5)
+        ax.set_xlabel("Duración del rally")
+        ax.set_ylabel("Cantidad de puntos")
+        ax.grid(True, axis="y", alpha=0.25)
+
+    if title:
+        ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)

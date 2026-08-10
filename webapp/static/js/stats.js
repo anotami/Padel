@@ -106,6 +106,77 @@ async function loadStats() {
       </tr>
     `).join('');
   }
+
+  const zoneTimeBody = document.getElementById('zoneTimeBody');
+  const zoneTimeEntries = Object.entries(data.player_zone_time || {});
+  if (zoneTimeEntries.length === 0) {
+    zoneTimeBody.innerHTML = '<tr><td colspan="3" class="muted">Sin posiciones registradas todavía.</td></tr>';
+  } else {
+    zoneTimeBody.innerHTML = zoneTimeEntries.map(([pid, z]) => `
+      <tr>
+        <td>${playerLabel(parseInt(pid, 10), namesById)}</td>
+        <td>${z.net_pct}%</td>
+        <td>${z.baseline_pct}%</td>
+      </tr>
+    `).join('');
+  }
+
+  const formationBody = document.getElementById('formationBody');
+  const formationEntries = Object.entries(data.team_formation_time || {});
+  const distanceByTeam = data.partner_distance || {};
+  if (formationEntries.length === 0) {
+    formationBody.innerHTML = '<tr><td colspan="5" class="muted">Sin datos suficientes (necesita a los 2 integrantes de una pareja identificados).</td></tr>';
+  } else {
+    formationBody.innerHTML = formationEntries.map(([team, f]) => `
+      <tr>
+        <td>${team}</td>
+        <td>${f.ambos_red_pct}%</td>
+        <td>${f.ambos_fondo_pct}%</td>
+        <td>${f.mixta_pct}%</td>
+        <td>${distanceByTeam[team] ? `${distanceByTeam[team].avg_distance_m}m` : '-'}</td>
+      </tr>
+    `).join('');
+  }
+
+  const netConversionBody = document.getElementById('netConversionBody');
+  const netConversion = data.net_conversion_rate || {};
+  const zoneLabel = { red: 'Red', fondo: 'Fondo' };
+  const netConversionEntries = Object.entries(netConversion).filter(([, v]) => v.total > 0);
+  if (netConversionEntries.length === 0) {
+    netConversionBody.innerHTML = '<tr><td colspan="4" class="muted">Sin puntos suficientes con ganador confirmado.</td></tr>';
+  } else {
+    netConversionBody.innerHTML = netConversionEntries.map(([zone, v]) => `
+      <tr>
+        <td>${zoneLabel[zone] || zone}</td>
+        <td>${v.wins}</td>
+        <td>${v.losses}</td>
+        <td>${v.win_pct != null ? `${v.win_pct}%` : '-'}</td>
+      </tr>
+    `).join('');
+  }
+
+  await loadHalvesComparison();
+}
+
+async function loadHalvesComparison() {
+  const res = await fetch(`/api/videos/${videoId}/compare-halves`);
+  const data = await res.json();
+  const body = document.getElementById('halvesBody');
+
+  if (!data.first_half || !data.second_half) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">Hacen falta al menos 2 puntos confirmados para comparar mitades.</td></tr>';
+    return;
+  }
+
+  const row = (label, half) => `
+    <tr>
+      <td>${label}</td>
+      <td>${half.rally_stats.avg_duration_s != null ? `${half.rally_stats.avg_duration_s}s` : '-'}</td>
+      <td>${half.rally_stats.avg_shots_per_rally != null ? half.rally_stats.avg_shots_per_rally : '-'}</td>
+      <td>${half.avg_player_speed_kmh} km/h</td>
+    </tr>
+  `;
+  body.innerHTML = row('Primera mitad', data.first_half) + row('Segunda mitad', data.second_half);
 }
 
 loadStats();

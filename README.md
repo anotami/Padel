@@ -22,6 +22,13 @@ padel_analytics/
                             estadísticas de rally, winners/errores por tipo de golpe
   performance_stats.py     Distancia recorrida, velocidad, sprints, cobertura de cancha,
                             velocidad de la pelota en cada golpe
+  formation_stats.py        Formación de pareja (red/fondo/mixta), % tiempo en la red,
+                            distancia entre compañeros, conversión de puntos por zona
+  zone_stats.py               Posiciones de winners/errores y de saques, para los mapas de zona
+  momentum_stats.py            Marcador acumulado punto a punto, distribución de duración de
+                            rallies, comparación primera vs. segunda mitad
+  scoreboard_overlay.py         Graba el marcador corriendo en una copia del video anotado
+  report.py                      Informe HTML de una página con todo lo anterior, para compartir
   highlights.py             Recorte automático de clips de video por punto (ffmpeg)
   identity.py              Limita el tracking a 4 jugadores estables (reidentificación espacial)
   shirt_color.py            Detecta el color de camiseta de cada jugador (nombre por defecto)
@@ -159,6 +166,19 @@ propia PC; los videos y resultados se guardan en `data/`.
    - **Duración de los rallies** (promedio/mín/máx) y golpes promedio por punto.
    - **Winners vs. errores por tipo de golpe** (ej. cuántos puntos definió
      un smash ganador vs. cuántos se perdieron por error de víbora).
+   - **Formación y juego de red**: % de tiempo que cada jugador pasa en la
+     red vs. el fondo, en qué formación jugó cada pareja la mayor parte
+     del tiempo (ambos en la red / ambos en el fondo / mixta) y qué tan
+     seguido gana un punto cuando el último toque fue en la red vs. en el
+     fondo — la investigación de rendimiento en pádel marca esto como uno
+     de los indicadores más fuertes de nivel de juego.
+   - **Mapas de eficacia por zona**: dónde en la pista terminan los puntos
+     (winners en verde, errores en rojo) y dónde caen los saques, sobre el
+     dibujo de la cancha.
+   - **Momentum**: marcador acumulado punto a punto (para ver rachas),
+     distribución de cuánto duran los rallies, y comparación de la
+     primera mitad del partido contra la segunda (¿bajó el ritmo por
+     cansancio?).
 
    El conteo de golpes por jugador se calcula igual sin procesar el video
    (si cargaste golpes a mano); todo lo demás necesita que el video haya
@@ -169,6 +189,16 @@ propia PC; los videos y resultados se guardan en `data/`.
    estrella. Un botón genera de una los clips de los 5 rallies más largos;
    cada punto también se puede recortar individualmente. Los clips quedan
    reproducibles en el navegador y con enlace de descarga directa.
+9. **Marcador incrustado** (botón en `/video/<id>/results`): genera una
+   copia del video anotado con el marcador (puntos por pareja) dibujado
+   en la esquina, actualizándose en el frame exacto donde terminó cada
+   punto. Es una segunda pasada sobre el video ya procesado — se ejecuta
+   a pedido, después de confirmar los puntos, no durante el procesamiento
+   inicial (todavía no habría marcador que dibujar).
+10. **Informe HTML** (botón en `/video/<id>/results`): junta marcador,
+    tabla de jugadores, momentum y heatmaps en una sola página HTML
+    autocontenida, pensada para compartir sin depender de que la webapp
+    esté corriendo (alcanza con copiar la carpeta de resultados del video).
 
 ## 4. Uso también como librería (sin la webapp)
 
@@ -264,6 +294,16 @@ print(result.heatmap_paths)         # heatmaps PNG por pareja/jugador
   también se bajaron a propósito (recall por sobre precisión bruta), ya
   que el filtrado espacial, el tope de 4 jugadores y el gating de la
   pelota ya se encargan de limpiar falsos positivos.
+- **Ventana de búsqueda de la pelota ("zoom")**: además de lo anterior,
+  cada frame se procesa dos veces para la pelota: una vez en el frame
+  completo, y una segunda vez sólo en un recorte alrededor de donde el
+  filtro de Kalman predice que debería estar (radio adaptativo: crece con
+  la velocidad reciente de la pelota, para no perderla en un smash). Al
+  correr YOLO sobre ese recorte con el mismo `imgsz`, la pelota — que en
+  el frame completo puede medir menos de 10px — ocupa una fracción mucho
+  mayor del cuadro que ve el modelo, y se detecta con más precisión. El
+  resultado del recorte se prioriza sobre el del frame completo cuando
+  aparece.
 - **Heatmaps**: matriz de ocupación 2D (`np.histogram2d`) sobre las
   posiciones proyectadas en metros, agregada por pareja (según el lado de
   la red donde jugó cada ID en promedio) y por jugador individual.

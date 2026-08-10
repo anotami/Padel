@@ -62,6 +62,20 @@ DEFAULT_YOLO_IMGSZ = 960
 COURT_MARGIN_M = 0.8
 
 # ---------------------------------------------------------------------------
+# Ventana de búsqueda de la pelota (segundo pase de YOLO, "zoom" alrededor
+# de la posición predicha por el Kalman). La pelota real de pádel mide unos
+# pocos centímetros y en un frame completo a 960px de lado puede ocupar
+# menos de 10px — casi imposible de detectar de forma confiable. Recortando
+# una ventana chica alrededor de donde el filtro predice que debería estar
+# y corriendo YOLO sólo ahí (con el mismo imgsz), la pelota queda mucho más
+# grande en relación al cuadro de entrada del modelo -> se detecta mejor.
+# ---------------------------------------------------------------------------
+BALL_SEARCH_BASE_RADIUS_PX = 130      # radio mínimo de la ventana (pelota quieta/lenta)
+BALL_SEARCH_MAX_RADIUS_PX = 380       # tope, para no perder el efecto "zoom" ni tardar de más
+BALL_SEARCH_SPEED_MULTIPLIER = 2.2    # cuánto crece el radio por cada px/frame de velocidad reciente
+BALL_SEARCH_ROI_IMGSZ = 640           # imgsz del pase de YOLO sobre el recorte
+
+# ---------------------------------------------------------------------------
 # Rutas del proyecto.
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

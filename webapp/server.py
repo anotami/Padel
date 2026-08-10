@@ -16,6 +16,7 @@ Flujo de páginas:
 from __future__ import annotations
 
 import datetime
+import io
 import json
 import re
 import shutil
@@ -29,7 +30,13 @@ from padel_analytics.calibration import CourtCalibrator
 from padel_analytics.shot_detection import ShotLabelStore, SHOT_TYPES
 from padel_analytics.points import PointLabelStore
 from padel_analytics.player_names import PlayerNameStore
-from padel_analytics import match_stats, performance_stats, highlights
+from padel_analytics.rendering import (
+    export_scatter_plot, SCATTER_STYLE_WIN_LOSS,
+    export_momentum_chart, export_rally_duration_histogram,
+)
+from padel_analytics import match_stats, performance_stats, highlights, zone_stats, formation_stats, momentum_stats
+from padel_analytics.scoreboard_overlay import burn_in_scoreboard
+from padel_analytics.report import generate_html_report
 
 DEFAULT_TEAM_NAMES = ["pareja_A", "pareja_B"]
 
@@ -152,6 +159,9 @@ def results_page(video_id: str):
     video_codec_used = metadata.get("video_codec_used", "mp4v")
     codec_playable_in_browser = video_codec_used in ("avc1", "H264", "h264_ffmpeg")
 
+    has_scoreboard_video = bool(record.output_dir) and (Path(record.output_dir) / "output_scoreboard.mp4").exists()
+    has_report = bool(record.output_dir) and (Path(record.output_dir) / "report.html").exists()
+
     return render_template(
         "results.html",
         video=record,
@@ -159,6 +169,8 @@ def results_page(video_id: str):
         has_points_export=has_points_export,
         codec_playable_in_browser=codec_playable_in_browser,
         video_codec_used=video_codec_used,
+        has_scoreboard_video=has_scoreboard_video,
+        has_report=has_report,
     )
 
 
@@ -611,7 +623,131 @@ def api_stats(video_id: str):
         "rally_stats": match_stats.rally_stats(points, shots, fps),
         "winners_errors_by_shot_type": match_stats.winners_errors_by_shot_type(outcomes),
         "top_ball_speeds": top_ball_speeds_table,
+        "player_zone_time": formation_stats.player_zone_time(records, geometry),
+        "team_formation_time": formation_stats.team_formation_time(records, player_teams, geometry),
+        "partner_distance": formation_stats.partner_distance_stats(records, player_teams),
+        "net_conversion_rate": formation_stats.net_conversion_rate(outcomes, records, geometry),
     })
+
+
+# ---------------------------------------------------------------------------
+# API: mapas de eficacia por zona (winners/errores, colocación de saques)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>/zone-map/winners-errors.png")
+def zone_map_winners_errors(video_id: str):
+    record = _video_or_404(video_id)
+    shots = ShotLabelStore(_shots_path(video_id)).all()
+    points = PointLabelStore(_points_path(video_id)).all()
+    player_teams = _player_teams(record)
+    outcomes = match_stats.compute_point_outcomes(points, shots, player_teams)
+    shots_by_id = {s.id: s for s in shots}
+
+    positions = zone_stats.winners_errors_positions(outcomes, shots_by_id)
+    buffer = io.BytesIO()
+    export_scatter_plot(
+        positions, config.CourtGeometry(), buffer,
+        title="Winners y errores por zona", styles=SCATTER_STYLE_WIN_LOSS,
+    )
+    buffer.seek(0)
+    return app.response_class(buffer.getvalue(), mimetype="image/png")
+
+
+@app.route("/api/videos/<video_id>/zone-map/serves.png")
+def zone_map_serves(video_id: str):
+    _video_or_404(video_id)
+    shots = ShotLabelStore(_shots_path(video_id)).all()
+    points = PointLabelStore(_points_path(video_id)).all()
+
+    serves = zone_stats.serve_placement_positions(points, shots)
+    buffer = io.BytesIO()
+    export_scatter_plot(
+        {"Saques": [(s["x_m"], s["y_m"]) for s in serves]},
+        config.CourtGeometry(), buffer,
+        title="Colocación de saques",
+        styles={"Saques": {"color": "#f2b134", "marker": "o", "label": "Saques"}},
+    )
+    buffer.seek(0)
+    return app.response_class(buffer.getvalue(), mimetype="image/png")
+
+
+# ---------------------------------------------------------------------------
+# API: momentum y ritmo del partido
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>/momentum-chart.png")
+def momentum_chart(video_id: str):
+    _video_or_404(video_id)
+    points = PointLabelStore(_points_path(video_id)).all()
+    timeline = momentum_stats.momentum_timeline(points)
+    buffer = io.BytesIO()
+    export_momentum_chart(timeline, buffer, title="Marcador acumulado punto a punto")
+    buffer.seek(0)
+    return app.response_class(buffer.getvalue(), mimetype="image/png")
+
+
+@app.route("/api/videos/<video_id>/rally-histogram.png")
+def rally_histogram(video_id: str):
+    _video_or_404(video_id)
+    points = PointLabelStore(_points_path(video_id)).all()
+    buckets = momentum_stats.rally_duration_histogram(points)
+    buffer = io.BytesIO()
+    export_rally_duration_histogram(buckets, buffer, title="Distribución de duración de rallies")
+    buffer.seek(0)
+    return app.response_class(buffer.getvalue(), mimetype="image/png")
+
+
+@app.route("/api/videos/<video_id>/compare-halves")
+def compare_halves(video_id: str):
+    record = _video_or_404(video_id)
+    shots = ShotLabelStore(_shots_path(video_id)).all()
+    points = PointLabelStore(_points_path(video_id)).all()
+    records = _load_timeseries(video_id)
+    fps = record.fps or 30.0
+    return jsonify(momentum_stats.compare_halves(points, shots, records, fps))
+
+
+# ---------------------------------------------------------------------------
+# API: marcador incrustado en el video (segunda pasada, a pedido)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>/scoreboard/generate", methods=["POST"])
+def api_generate_scoreboard(video_id: str):
+    record = _video_or_404(video_id)
+    if record.status != "done" or not record.output_dir:
+        return jsonify({"error": "El video todavía no fue procesado (necesita el video anotado)."}), 400
+
+    points = PointLabelStore(_points_path(video_id)).all()
+    source_video = Path(record.output_dir) / "output_annotated.mp4"
+    output_path = Path(record.output_dir) / "output_scoreboard.mp4"
+
+    ok = burn_in_scoreboard(source_video, points, output_path)
+    if not ok:
+        return jsonify({
+            "error": "No hay puntos con ganador confirmado todavía — marcá y confirmá al menos uno."
+        }), 400
+
+    return jsonify({"ok": True, "url": f"/media/outputs/{video_id}/output_scoreboard.mp4"})
+
+
+# ---------------------------------------------------------------------------
+# API: informe HTML exportable
+# ---------------------------------------------------------------------------
+
+@app.route("/api/videos/<video_id>/report/generate", methods=["POST"])
+def api_generate_report(video_id: str):
+    record = _video_or_404(video_id)
+    if record.status != "done" or not record.output_dir:
+        return jsonify({"error": "El video todavía no fue procesado."}), 400
+
+    generate_html_report(
+        video_id=video_id,
+        video_name=record.original_filename,
+        output_dir=record.output_dir,
+        fps=record.fps or 30.0,
+        player_teams=_player_teams(record),
+    )
+    return jsonify({"ok": True, "url": f"/media/outputs/{video_id}/report.html"})
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,37 @@
 </div>
 
 <div class="card">
+  <h2>Marcador incrustado</h2>
+  <p class="muted">
+    Genera una copia del video con el marcador (puntos por pareja) dibujado en la esquina, actualizándose
+    en el momento exacto en que termina cada punto. Usa los puntos ya confirmados en
+    <a href="{{ url_for('points_page', video_id=video.id) }}">marcado de puntos</a> — confirmá el ganador de
+    los que falten antes de generarlo para que el marcador quede completo. Es una segunda pasada sobre el
+    video ya anotado, puede tardar unos segundos según la duración.
+  </p>
+  <div id="scoreboardFlash" style="margin-top:10px;"></div>
+  <button class="btn" id="generateScoreboardBtn">{{ 'Regenerar' if has_scoreboard_video else 'Generar' }} video con marcador</button>
+  {% if has_scoreboard_video %}
+  <video controls src="{{ url_for('media_output', video_id=video.id, filename='output_scoreboard.mp4') }}" id="scoreboardVideo" style="margin-top:12px;"></video>
+  <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='output_scoreboard.mp4') }}" download style="margin-top:10px; display:inline-block;">Descargar</a>
+  {% else %}
+  <video controls id="scoreboardVideo" style="margin-top:12px; display:none;"></video>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Informe del partido</h2>
+  <p class="muted">Genera una página HTML de una sola hoja con el marcador, los jugadores, momentum y heatmaps — se guarda junto a los demás resultados, así que se puede compartir copiando la carpeta completa (o solo el link, si esta PC queda accesible en tu red).</p>
+  <div id="reportFlash" style="margin-top:10px;"></div>
+  <button class="btn" id="generateReportBtn">{{ 'Regenerar' if has_report else 'Generar' }} informe</button>
+  {% if has_report %}
+  <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='report.html') }}" target="_blank" id="reportLink" style="margin-left:8px;">Ver informe</a>
+  {% else %}
+  <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='report.html') }}" target="_blank" id="reportLink" style="margin-left:8px; display:none;">Ver informe</a>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Exportaciones</h2>
   <p class="muted">Serie temporal (Frame, Player_ID, Pos_X_2D, Pos_Y_2D, Ball_X, Ball_Y) y golpes detectados.</p>
   <a class="btn secondary" href="{{ url_for('media_output', video_id=video.id, filename='timeseries.csv') }}" download>Descargar CSV</a>

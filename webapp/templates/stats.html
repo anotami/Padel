@@ -59,6 +59,65 @@
 </div>
 
 <div class="card">
+  <h3>Formación y juego de red</h3>
+  <p class="muted">
+    En pádel, ganar puntos desde el fondo es mucho más difícil que desde la red — esta sección mide
+    cuánto tiempo pasa cada pareja en cada zona y qué tan seguido convierte puntos jugados en la red.
+  </p>
+  <div style="overflow-x:auto;">
+  <table>
+    <thead><tr><th>Jugador</th><th>% tiempo en la red</th><th>% tiempo en el fondo</th></tr></thead>
+    <tbody id="zoneTimeBody"></tbody>
+  </table>
+  </div>
+  <div class="grid-2" style="margin-top:16px;">
+    <div>
+      <h3 style="margin-top:0;">Formación de pareja</h3>
+      <table>
+        <thead><tr><th>Pareja</th><th>Ambos en la red</th><th>Ambos en el fondo</th><th>Mixta</th><th>Distancia entre compañeros</th></tr></thead>
+        <tbody id="formationBody"></tbody>
+      </table>
+    </div>
+    <div>
+      <h3 style="margin-top:0;">Conversión de puntos por zona</h3>
+      <table>
+        <thead><tr><th>Zona del último toque</th><th>Ganados</th><th>Perdidos</th><th>% efectividad</th></tr></thead>
+        <tbody id="netConversionBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Momentum y ritmo del partido</h3>
+  <div class="grid-2">
+    <img class="heatmap" src="/api/videos/{{ video.id }}/momentum-chart.png" alt="Marcador acumulado punto a punto">
+    <img class="heatmap" src="/api/videos/{{ video.id }}/rally-histogram.png" alt="Distribución de duración de rallies">
+  </div>
+  <h3 style="margin-top:20px;">Primera mitad vs. segunda mitad</h3>
+  <p class="muted">Comparación por cantidad de puntos jugados (no por tiempo de reloj) — útil para ver si el ritmo bajó por cansancio o subió al entrar en calor.</p>
+  <div style="overflow-x:auto;">
+  <table>
+    <thead><tr><th></th><th>Duración prom. de rally</th><th>Golpes prom. por punto</th><th>Vel. media jugadores</th></tr></thead>
+    <tbody id="halvesBody"></tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Mapas de eficacia por zona</h3>
+  <p class="muted">Dónde en la pista terminan los puntos y dónde caen los saques (se actualiza solo con los puntos/golpes confirmados hasta ahora).</p>
+  <div class="grid-2">
+    <div>
+      <img class="heatmap" src="/api/videos/{{ video.id }}/zone-map/winners-errors.png" alt="Winners y errores por zona">
+    </div>
+    <div>
+      <img class="heatmap" src="/api/videos/{{ video.id }}/zone-map/serves.png" alt="Colocación de saques">
+    </div>
+  </div>
+</div>
+
+<div class="card">
   <h3>Detalle por punto</h3>
   <table>
     <thead>

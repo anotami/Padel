@@ -149,6 +149,59 @@ class BallKalmanTracker:
         corrected = self.kf.correct(np.array([[measurement_xy[0]], [measurement_xy[1]]], dtype=np.float32))
         return float(corrected[0, 0]), float(corrected[1, 0])
 
+    def peek_predicted_position_and_speed(self) -> tuple[tuple[float, float] | None, float]:
+        """
+        Adelanta la posición un paso (x+vx, y+vy) a partir del último estado
+        corregido, SIN llamar a `kf.predict()` (que sí muta el estado
+        interno del filtro) — se usa sólo para centrar la ventana de
+        búsqueda de la pelota antes de procesar el frame, no para el
+        tracking en sí. Devuelve también la velocidad (px/frame) para
+        poder agrandar la ventana cuando la pelota viene rápido.
+        """
+        if not self._initialized:
+            return None, 0.0
+        state = self.kf.statePost
+        x, y, vx, vy = (float(state[i, 0]) for i in range(4))
+        return (x + vx, y + vy), math.hypot(vx, vy)
+
+
+def compute_search_window(
+    frame_width: int,
+    frame_height: int,
+    center_xy: tuple[float, float],
+    radius_px: float,
+) -> tuple[int, int, int, int]:
+    """
+    Ventana cuadrada de radio `radius_px` centrada en `center_xy`, recortada
+    a los límites del frame. Devuelve (x1, y1, x2, y2) en píxeles enteros.
+    Función pura (sin YOLO) para poder testear la geometría del recorte.
+    """
+    cx, cy = center_xy
+    x1 = int(max(0, cx - radius_px))
+    y1 = int(max(0, cy - radius_px))
+    x2 = int(min(frame_width, cx + radius_px))
+    y2 = int(min(frame_height, cy + radius_px))
+    return x1, y1, x2, y2
+
+
+def translate_point_to_frame(point_xy_in_crop: tuple[float, float], offset_x: int, offset_y: int) -> tuple[float, float]:
+    """Convierte un punto en coordenadas del recorte a coordenadas del frame completo."""
+    return point_xy_in_crop[0] + offset_x, point_xy_in_crop[1] + offset_y
+
+
+def adaptive_search_radius(
+    speed_px_per_frame: float,
+    base_radius_px: float = config.BALL_SEARCH_BASE_RADIUS_PX,
+    max_radius_px: float = config.BALL_SEARCH_MAX_RADIUS_PX,
+    speed_multiplier: float = config.BALL_SEARCH_SPEED_MULTIPLIER,
+) -> float:
+    """
+    Radio de la ventana de búsqueda, agrandado según qué tan rápido venía
+    la pelota (para no perderla en un smash) pero acotado a un máximo (para
+    no perder el beneficio del "zoom" ni tardar de más en cada frame).
+    """
+    return min(max_radius_px, base_radius_px + speed_multiplier * speed_px_per_frame)
+
 
 class PadelTracker:
     """
@@ -203,7 +256,7 @@ class PadelTracker:
         detections = sv.Detections.from_ultralytics(results)
 
         players = self._track_players(detections, frame_index)
-        ball = self._track_ball(detections)
+        ball = self._track_ball(detections, frame)
 
         return FrameTrackingResult(frame_index=frame_index, players=players, ball=ball)
 
@@ -247,21 +300,23 @@ class PadelTracker:
 
         return players
 
-    def _track_ball(self, detections) -> BallDetection:
-        ball_mask = (detections.class_id == config.COCO_BALL_CLASS_ID) & (
-            detections.confidence >= self.ball_conf_threshold
-        )
-        ball_detections = detections[ball_mask]
+    def _track_ball(self, detections, frame: np.ndarray) -> BallDetection:
+        measurement, confidence = self._best_ball_detection(detections)
 
-        measurement = None
-        confidence = 0.0
-        if len(ball_detections) > 0:
-            # Puede haber falsos positivos (ej. cabeza pequeña, gorra). Nos
-            # quedamos con la detección de mayor confianza como medición.
-            best_idx = int(np.argmax(ball_detections.confidence))
-            x1, y1, x2, y2 = ball_detections.xyxy[best_idx]
-            measurement = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
-            confidence = float(ball_detections.confidence[best_idx])
+        # Segundo pase "con zoom": si ya tenemos una posición previa de la
+        # pelota (o el filtro predice dónde debería estar este frame),
+        # recortamos una ventana chica alrededor y volvemos a correr YOLO
+        # ahí. La pelota es tan pequeña que en el frame completo casi no
+        # tiene píxeles; en el recorte ocupa una fracción mucho mayor del
+        # cuadro que ve el modelo, así que se detecta con más precisión.
+        # Se prioriza este resultado sobre el del frame completo cuando
+        # aparece, precisamente por eso.
+        predicted_xy, speed_px = self.ball_tracker.peek_predicted_position_and_speed()
+        if predicted_xy is not None:
+            radius = adaptive_search_radius(speed_px)
+            roi_measurement, roi_confidence = self._detect_ball_in_roi(frame, predicted_xy, radius)
+            if roi_measurement is not None:
+                measurement, confidence = roi_measurement, roi_confidence
 
         smoothed = self.ball_tracker.update(measurement)
         if smoothed is None:
@@ -272,3 +327,44 @@ class PadelTracker:
             confidence=confidence,
             is_predicted=measurement is None,
         )
+
+    def _best_ball_detection(self, detections) -> tuple[tuple[float, float] | None, float]:
+        """Mejor detección de pelota del pase de YOLO sobre el frame completo (puede no haber ninguna)."""
+        ball_mask = (detections.class_id == config.COCO_BALL_CLASS_ID) & (
+            detections.confidence >= self.ball_conf_threshold
+        )
+        ball_detections = detections[ball_mask]
+        if len(ball_detections) == 0:
+            return None, 0.0
+
+        # Puede haber falsos positivos (ej. cabeza pequeña, gorra). Nos
+        # quedamos con la detección de mayor confianza como medición.
+        best_idx = int(np.argmax(ball_detections.confidence))
+        x1, y1, x2, y2 = ball_detections.xyxy[best_idx]
+        return ((x1 + x2) / 2.0, (y1 + y2) / 2.0), float(ball_detections.confidence[best_idx])
+
+    def _detect_ball_in_roi(
+        self, frame: np.ndarray, center_xy: tuple[float, float], radius_px: float
+    ) -> tuple[tuple[float, float] | None, float]:
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = compute_search_window(w, h, center_xy, radius_px)
+        if x2 - x1 < 20 or y2 - y1 < 20:
+            return None, 0.0
+
+        crop = frame[y1:y2, x1:x2]
+        results = self.model(
+            crop,
+            classes=[config.COCO_BALL_CLASS_ID],
+            conf=self.ball_conf_threshold,
+            imgsz=config.BALL_SEARCH_ROI_IMGSZ,
+            verbose=False,
+            device=self.device,
+        )[0]
+        detections = self._sv.Detections.from_ultralytics(results)
+        if len(detections) == 0:
+            return None, 0.0
+
+        best_idx = int(np.argmax(detections.confidence))
+        bx1, by1, bx2, by2 = detections.xyxy[best_idx]
+        point_in_crop = ((bx1 + bx2) / 2.0, (by1 + by2) / 2.0)
+        return translate_point_to_frame(point_in_crop, x1, y1), float(detections.confidence[best_idx])

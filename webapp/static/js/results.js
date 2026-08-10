@@ -116,3 +116,55 @@ async function loadAutoSummary() {
 }
 
 loadAutoSummary();
+
+const generateScoreboardBtn = document.getElementById('generateScoreboardBtn');
+if (generateScoreboardBtn) {
+  generateScoreboardBtn.addEventListener('click', async () => {
+    const flash = document.getElementById('scoreboardFlash');
+    generateScoreboardBtn.disabled = true;
+    const originalText = generateScoreboardBtn.textContent;
+    generateScoreboardBtn.textContent = 'Generando...';
+    flash.innerHTML = '<div class="flash info">Generando video con marcador, puede tardar unos segundos...</div>';
+
+    const res = await fetch(`/api/videos/${videoId}/scoreboard/generate`, { method: 'POST' });
+    const data = await res.json();
+
+    generateScoreboardBtn.disabled = false;
+    generateScoreboardBtn.textContent = originalText;
+
+    if (!res.ok) {
+      flash.innerHTML = `<div class="flash error">${data.error || 'Error al generar el video.'}</div>`;
+      return;
+    }
+
+    flash.innerHTML = '<div class="flash info">Listo.</div>';
+    const video = document.getElementById('scoreboardVideo');
+    video.src = `${data.url}?_=${Date.now()}`;
+    video.style.display = 'block';
+    generateScoreboardBtn.textContent = 'Regenerar video con marcador';
+  });
+}
+
+const generateReportBtn = document.getElementById('generateReportBtn');
+if (generateReportBtn) {
+  generateReportBtn.addEventListener('click', async () => {
+    const flash = document.getElementById('reportFlash');
+    generateReportBtn.disabled = true;
+    flash.innerHTML = '<div class="flash info">Generando informe...</div>';
+
+    const res = await fetch(`/api/videos/${videoId}/report/generate`, { method: 'POST' });
+    const data = await res.json();
+    generateReportBtn.disabled = false;
+
+    if (!res.ok) {
+      flash.innerHTML = `<div class="flash error">${data.error || 'Error al generar el informe.'}</div>`;
+      return;
+    }
+
+    flash.innerHTML = '<div class="flash info">Listo.</div>';
+    generateReportBtn.textContent = 'Regenerar informe';
+    const link = document.getElementById('reportLink');
+    link.href = `${data.url}?_=${Date.now()}`;
+    link.style.display = 'inline-block';
+  });
+}
