@@ -32,12 +32,15 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Reemplaza "heatmap_player_N.png" / "heatmap_pareja_X.png" por un nombre
-// legible ("Heatmap - Rojo") usando los nombres de jugador guardados.
+// legible ("ID 2 · Rosa"), con el mismo número de ID que se ve pegado al
+// jugador en el video anotado (la cajita "ID 2" sobre cada jugador), para
+// poder cruzar fácilmente uno con el otro.
 function friendlyHeatmapLabel(filename, playersByFileKey) {
   const playerMatch = filename.match(/^heatmap_player_(\d+)\.png$/);
   if (playerMatch) {
-    const name = playersByFileKey[playerMatch[1]];
-    return name ? `Jugador: ${name}` : filename;
+    const id = playerMatch[1];
+    const name = playersByFileKey[id];
+    return `ID ${id} · ${name || `Jugador ${id}`}`;
   }
   const teamMatch = filename.match(/^heatmap_(pareja_[AB])\.png$/);
   if (teamMatch) {
@@ -67,3 +70,49 @@ async function applyFriendlyHeatmapLabels() {
 }
 
 applyFriendlyHeatmapLabels();
+
+// Resumen automático: todo lo que el sistema detectó solo (golpes, puntos,
+// marcador) apenas terminó de procesar, con links para corregir cada cosa.
+async function loadAutoSummary() {
+  const box = document.getElementById('autoSummaryBody');
+  try {
+    const [stats, pointsSummary, playersData] = await Promise.all([
+      fetch(`/api/videos/${videoId}/stats`).then((r) => r.json()),
+      fetch(`/api/videos/${videoId}/points/summary`).then((r) => r.json()),
+      fetch(`/api/videos/${videoId}/players`).then((r) => r.json()),
+    ]);
+
+    const namesById = {};
+    (playersData.players || []).forEach((p) => { namesById[p.player_id] = p.name; });
+
+    const scoreEntries = Object.entries(pointsSummary.points_by_team || {});
+    const scoreHtml = scoreEntries.length
+      ? scoreEntries.map(([team, count]) => `<b>${team}</b>: ${count}`).join(' &middot; ')
+      : 'todavía sin puntos confirmados';
+
+    const pendingHtml = pointsSummary.pending_confirmation > 0
+      ? `<p style="color: var(--warn);">${pointsSummary.pending_confirmation} punto(s) detectados automáticamente esperan que confirmes el ganador.</p>`
+      : '';
+
+    const totalShots = (stats.players || []).reduce((sum, p) => sum + p.total_shots, 0);
+    const playersHtml = (stats.players || [])
+      .map((p) => `${namesById[p.player_id] || `Jugador ${p.player_id}`} (${p.total_shots} golpes, ${p.distance_m}m)`)
+      .join(' &middot; ');
+
+    box.innerHTML = `
+      <p>Marcador: ${scoreHtml}</p>
+      ${pendingHtml}
+      <p>Puntos detectados: <b>${pointsSummary.total_points}</b> &middot; Golpes detectados: <b>${totalShots}</b></p>
+      ${playersHtml ? `<p class="muted">${playersHtml}</p>` : ''}
+      <div class="shot-form" style="margin-top:10px;">
+        <a class="btn secondary" href="/video/${videoId}/points">Confirmar/corregir puntos</a>
+        <a class="btn secondary" href="/video/${videoId}/label">Corregir golpes</a>
+        <a class="btn secondary" href="/video/${videoId}/players">Corregir jugadores</a>
+      </div>
+    `;
+  } catch (err) {
+    box.innerHTML = '<p class="muted">No se pudo cargar el resumen todavía.</p>';
+  }
+}
+
+loadAutoSummary();

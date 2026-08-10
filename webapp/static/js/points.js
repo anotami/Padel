@@ -21,8 +21,10 @@ function formatTime(t) {
 const teamNames = window.PADEL_TEAM_NAMES || ['pareja_A', 'pareja_B'];
 
 function winnerSelectHtml(point) {
+  const blank = `<option value="" ${!point.winner_team ? 'selected' : ''}>-- elegir --</option>`;
   const options = teamNames.map((t) => `<option value="${t}" ${t === point.winner_team ? 'selected' : ''}>${t}</option>`).join('');
-  return `<select class="winner-edit-select" data-id="${point.id}">${options}</select>`;
+  const highlight = !point.winner_team ? 'style="border-color: var(--warn);"' : '';
+  return `<select class="winner-edit-select" data-id="${point.id}" ${highlight}>${blank}${options}</select>`;
 }
 
 async function refreshAll() {
@@ -52,9 +54,12 @@ function renderScoreboard(summary) {
     `).join('');
   }
   const avgText = document.getElementById('avgDurationText');
-  avgText.textContent = summary.avg_rally_duration_s != null
+  const base = summary.avg_rally_duration_s != null
     ? `Total de puntos: ${summary.total_points} · Duración promedio del punto: ${summary.avg_rally_duration_s}s`
     : `Total de puntos: ${summary.total_points}`;
+  avgText.innerHTML = summary.pending_confirmation > 0
+    ? `${base} · <span style="color: var(--warn);">${summary.pending_confirmation} punto(s) detectados automáticamente esperan que confirmes el ganador ↓</span>`
+    : base;
 }
 
 function renderPointsTable(points) {
@@ -78,6 +83,7 @@ function renderPointsTable(points) {
       <td><a href="#" class="seek-link" data-t="${p.start_timestamp_s}">${p.start_frame} (${formatTime(p.start_timestamp_s)})</a></td>
       <td>${endCell}</td>
       <td>${durationCell}</td>
+      <td>${p.auto_detected ? 'auto' : 'manual'}</td>
       <td>${winnerCell}</td>
       <td><button class="btn secondary delete-btn" data-id="${p.id}">Borrar</button></td>
     `;

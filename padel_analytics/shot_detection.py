@@ -241,6 +241,10 @@ class ShotLabelStore:
                 for key, value in fields.items():
                     if hasattr(event, key):
                         setattr(event, key, value)
+                # una vez corregido a mano, se lo trata como definitivo: si
+                # se reprocesa el video, ShotDetector no debe pisarlo con
+                # una nueva propuesta automática.
+                event.auto_detected = False
                 self.save()
                 return event
         return None

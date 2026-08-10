@@ -22,6 +22,7 @@ from .coordinates import AnalyticsEngine
 from .identity import PlayerIdentityResolver
 from .video_transcode import try_transcode_to_h264
 from .shot_detection import ShotDetector, ShotLabelStore
+from .points import PointDetector, PointLabelStore
 from .shirt_color import ShirtColorAccumulator
 from .player_names import PlayerNameStore
 from .rendering import (
@@ -42,6 +43,7 @@ class PipelineResult:
     timeseries_csv_path: Path
     timeseries_json_path: Path
     shots_json_path: Path
+    points_json_path: Path
     heatmap_paths: dict[str, Path]
     total_frames: int
     fps: float
@@ -222,10 +224,20 @@ class PadelAnalysisPipeline:
 
         # Detección heurística de golpes (Fase de eventos de juego)
         shots_path = self.output_dir / "shots.json"
-        detector = ShotDetector()
-        auto_events = detector.detect(analytics.rows, fps=fps)
-        store = ShotLabelStore(shots_path)
-        store.set_auto_detected(auto_events)
+        shot_detector = ShotDetector()
+        auto_shots = shot_detector.detect(analytics.rows, fps=fps)
+        shot_store = ShotLabelStore(shots_path)
+        shot_store.set_auto_detected(auto_shots)
+
+        # Segmentación automática de puntos (rallies), agrupando los golpes
+        # recién detectados: así la analítica por punto (marcador, WIN/LOSS,
+        # duración de rally) queda disponible de entrada sin que el usuario
+        # tenga que marcar cada punto a mano; sólo confirma el ganador.
+        points_path = self.output_dir / "points.json"
+        point_detector = PointDetector()
+        auto_points = point_detector.detect(shot_store.all(), fps=fps, total_frames=total_frames)
+        point_store = PointLabelStore(points_path)
+        point_store.set_auto_detected(auto_points)
 
         # metadata del job, útil para que la webapp sepa qué mostrar
         metadata = {
@@ -245,6 +257,7 @@ class PadelAnalysisPipeline:
             timeseries_csv_path=csv_path,
             timeseries_json_path=json_path,
             shots_json_path=shots_path,
+            points_json_path=points_path,
             heatmap_paths=heatmap_paths,
             total_frames=total_frames,
             fps=fps,

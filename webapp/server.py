@@ -72,23 +72,36 @@ def _team_names(record: storage.VideoRecord) -> list[str]:
     return teams or DEFAULT_TEAM_NAMES
 
 
+def _player_teams_override_path(video_id: str) -> Path:
+    return config.OUTPUTS_DIR / video_id / "player_teams.json"
+
+
 def _player_teams(record: storage.VideoRecord) -> dict[str, str]:
-    """Mapa player_id (string) -> nombre de pareja, tal cual quedó guardado en metadata.json."""
-    return _read_metadata(record).get("teams", {})
+    """
+    Mapa player_id (string) -> nombre de pareja. Por defecto, la que
+    infirió AnalyticsEngine (metadata.json, se recalcula en cada
+    procesamiento); si el usuario corrigió a mano la pareja de algún
+    jugador (`player_teams.json`), esa corrección tiene prioridad y
+    sobrevive a un reproceso.
+    """
+    inferred = _read_metadata(record).get("teams", {})
+    overrides = PlayerNameStore(_player_teams_override_path(record.id)).get_names()
+    return {**inferred, **overrides}
 
 
 def _player_names_path(video_id: str) -> Path:
     return config.OUTPUTS_DIR / video_id / "player_names.json"
 
 
-def _players_list(video_id: str) -> list[dict]:
+def _players_list(record: storage.VideoRecord) -> list[dict]:
     """
-    Lista fija de 1..MAX_PLAYERS_ON_COURT jugadores con su nombre actual:
-    el que detectó el pipeline por color de camiseta o el que puso el
-    usuario a mano (`player_names.json`), o "Jugador N" como placeholder
-    si todavía no se calculó ni se puso ninguno.
+    Lista fija de 1..MAX_PLAYERS_ON_COURT jugadores con su nombre y pareja
+    actuales: el nombre que detectó el pipeline por color de camiseta (o
+    "Jugador N" como placeholder) y la pareja inferida automáticamente,
+    ambos editables/corregibles por el usuario en cualquier momento.
     """
-    names = PlayerNameStore(_player_names_path(video_id)).get_names()
+    names = PlayerNameStore(_player_names_path(record.id)).get_names()
+    teams = _player_teams(record)
     players = []
     for pid in range(1, config.MAX_PLAYERS_ON_COURT + 1):
         key = str(pid)
@@ -96,6 +109,7 @@ def _players_list(video_id: str) -> list[dict]:
             "player_id": pid,
             "name": names.get(key, f"Jugador {pid}"),
             "is_placeholder": key not in names,
+            "team": teams.get(key),
         })
     return players
 
@@ -119,7 +133,7 @@ def calibrate_page(video_id: str):
 @app.route("/video/<video_id>/players")
 def players_page(video_id: str):
     record = _video_or_404(video_id)
-    return render_template("players.html", video=record)
+    return render_template("players.html", video=record, team_names=_team_names(record))
 
 
 @app.route("/video/<video_id>/results")
@@ -411,25 +425,29 @@ def api_get_teams(video_id: str):
 
 @app.route("/api/videos/<video_id>/players", methods=["GET"])
 def api_list_players(video_id: str):
-    _video_or_404(video_id)
-    return jsonify({"players": _players_list(video_id)})
+    record = _video_or_404(video_id)
+    return jsonify({"players": _players_list(record), "team_names": _team_names(record)})
 
 
 @app.route("/api/videos/<video_id>/players", methods=["POST"])
 def api_set_player_name(video_id: str):
-    _video_or_404(video_id)
+    record = _video_or_404(video_id)
     payload = request.get_json(force=True)
     player_id = payload.get("player_id")
     name = (payload.get("name") or "").strip()
+    team = (payload.get("team") or "").strip()
 
-    if player_id is None or not name:
-        return jsonify({"error": "Faltan campos: player_id, name."}), 400
+    if player_id is None or (not name and not team):
+        return jsonify({"error": "Faltan campos: player_id, y al menos uno de name/team."}), 400
     if not (1 <= int(player_id) <= config.MAX_PLAYERS_ON_COURT):
         return jsonify({"error": f"player_id debe estar entre 1 y {config.MAX_PLAYERS_ON_COURT}."}), 400
 
-    store = PlayerNameStore(_player_names_path(video_id))
-    store.set_name(int(player_id), name)
-    return jsonify({"players": _players_list(video_id)})
+    if name:
+        PlayerNameStore(_player_names_path(video_id)).set_name(int(player_id), name)
+    if team:
+        PlayerNameStore(_player_teams_override_path(video_id)).set_name(int(player_id), team)
+
+    return jsonify({"players": _players_list(record), "team_names": _team_names(record)})
 
 
 @app.route("/api/videos/<video_id>/points", methods=["GET"])
@@ -496,6 +514,8 @@ def api_update_point(video_id: str, point_id: str):
     store = PointLabelStore(_points_path(video_id))
     allowed_fields = {"winner_team", "note"}
     updates = {k: v for k, v in payload.items() if k in allowed_fields}
+    if updates.get("winner_team") == "":
+        updates["winner_team"] = None  # "-- elegir --": vuelve a quedar pendiente de confirmar
     event = store.update_point(point_id, **updates)
     if event is None:
         return jsonify({"error": "Punto no encontrado."}), 404

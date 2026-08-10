@@ -3,20 +3,21 @@
 {% block content %}
 
 <div class="card">
-  <h2>Nombres de jugadores</h2>
+  <h2>Nombres de jugadores y pareja</h2>
   <p class="muted">
     Por defecto, cada jugador se nombra con el color de camiseta detectado durante el procesamiento
-    (Fases 2-4). Podés cambiarle el nombre a cualquiera de los 4 en cualquier momento — se usa en
-    etiquetado de golpes, estadísticas y en los heatmaps.
+    (Fases 2-4), y la pareja (izquierda/derecha de la red) también se infiere automáticamente. Podés
+    corregir cualquiera de los 4 en cualquier momento — se usa en etiquetado de golpes, marcado de
+    puntos, estadísticas y heatmaps. Las correcciones no se pisan si reprocesás el video.
   </p>
   <div id="playersFlash" style="margin-top:10px;"></div>
   <table>
     <thead>
-      <tr><th>Jugador</th><th>Nombre</th></tr>
+      <tr><th>Jugador</th><th>Nombre</th><th>Pareja</th></tr>
     </thead>
     <tbody id="playersTableBody"></tbody>
   </table>
-  <button class="btn" id="saveAllBtn" style="margin-top:16px;">Guardar todos los nombres</button>
+  <button class="btn" id="saveAllBtn" style="margin-top:16px;">Guardar todo</button>
 </div>
 
 {% endblock %}
@@ -24,6 +25,7 @@
 {% block scripts %}
 <script>
   window.PADEL_VIDEO_ID = "{{ video.id }}";
+  window.PADEL_TEAM_NAMES = {{ team_names | tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/players.js') }}"></script>
 {% endblock %}

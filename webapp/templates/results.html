@@ -3,6 +3,12 @@
 {% block content %}
 
 <div class="card">
+  <h2>Resumen automático</h2>
+  <p class="muted">Todo lo que el sistema pudo detectar solo, apenas terminó de procesar — golpes, puntos (rallies) y quién jugó cada uno. Corregí lo que haga falta desde los links de abajo.</p>
+  <div id="autoSummaryBody">Cargando...</div>
+</div>
+
+<div class="card">
   <h2>Video anotado (doble panel)</h2>
   <p class="muted">Panel principal: cajas delimitadoras, ID de jugador y trayectoria reciente. Minimapa (esquina inferior): posición cenital exacta de los 4 jugadores y la pelota.</p>
   {% if not codec_playable_in_browser %}

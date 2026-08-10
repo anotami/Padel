@@ -16,7 +16,8 @@ padel_analytics/
   tracking.py          FASE 2 — PadelTracker: YOLOv8 + ByteTrack + filtrado espacial + pelota
   coordinates.py        FASE 3 — CoordinateTransformer + AnalyticsEngine: proyección 2D + heatmaps
   shot_detection.py     Detección heurística de golpes + almacenamiento de etiquetas
-  points.py              Marcado de inicio/fin de cada punto + ganador por pareja
+  points.py              Marcado de inicio/fin de cada punto + PointDetector (detección
+                            automática de rallies agrupando golpes) + ganador por pareja
   match_stats.py          Cruza puntos + golpes: WIN/LOSS por último toque, golpes por jugador,
                             estadísticas de rally, winners/errores por tipo de golpe
   performance_stats.py     Distancia recorrida, velocidad, sprints, cobertura de cancha,
@@ -99,38 +100,49 @@ propia PC; los videos y resultados se guardan en `data/`.
    YOLOv8, tracking con ByteTrack, filtrado espacial por el polígono de la
    pista, proyección a metros reales y generación del video anotado. Una
    barra de progreso muestra el avance frame a frame.
-4. **Resultados** (`/video/<id>/results` — FASE 4): video de doble panel
-   (cámara anotada + minimapa 2D), heatmaps de ocupación por pareja y por
-   jugador (click en cualquiera para verlo grande en un modal, con botón
-   de volver), y descarga de la serie temporal en CSV/JSON.
+4. **Resultados** (`/video/<id>/results` — FASE 4): lo primero que ves es
+   un **resumen automático** (marcador, puntos y golpes detectados, un
+   par de datos por jugador) con links directos para corregir cualquier
+   cosa — no hace falta ir página por página para enterarte de qué
+   detectó el sistema solo. Debajo, el video de doble panel (cámara
+   anotada + minimapa 2D), heatmaps de ocupación por pareja y por jugador
+   (click en cualquiera para verlo grande en un modal, con botón de
+   volver), y descarga de la serie temporal en CSV/JSON.
 5. **Jugadores** (`/video/<id>/players`): a cada jugador se le pone
    automáticamente de nombre por defecto el color de su camiseta
-   ("Rojo", "Azul", etc.), detectado muestreando el color del torso
-   durante el procesamiento (Fases 2-4). Desde esta página podés
-   cambiarle el nombre a cualquiera de los 4 en cualquier momento — se
-   usa en el selector de jugador al etiquetar golpes, en las
+   ("Rojo", "Azul", etc.) y se le asigna una pareja según de qué lado de
+   la red jugó en promedio — ambos calculados durante el procesamiento
+   (Fases 2-4). Desde esta página podés corregir el nombre y/o la pareja
+   de cualquiera de los 4 en cualquier momento — se usan en el selector
+   de jugador al etiquetar golpes, en el marcador de puntos, en las
    estadísticas y en las leyendas de los heatmaps. Si reprocesás el
-   video, los nombres que ya pusiste a mano no se pisan.
+   video, ninguna corrección que hayas hecho a mano se pisa.
 6. **Etiquetar golpes** (`/video/<id>/label`): lista los golpes detectados
    automáticamente por la heurística de trayectoria de la pelota (cambios
    bruscos de dirección cerca de un jugador) y permite corregirlos o
    agregar golpes manuales marcando el frame exacto sobre el reproductor
    de video, eligiendo jugador y tipo de golpe (derecha, revés, bandeja,
    víbora, smash, saque, etc.).
-6. **Marcar puntos** (`/video/<id>/points`): mientras mirás el video, un
-   botón "Marcar inicio de punto" registra el frame donde arranca el rally;
-   cuando termina, "Marcar fin de punto" te pide elegir qué pareja lo ganó
-   (y opcionalmente una nota). Sólo puede haber un punto abierto a la vez.
-   El ganador de cualquier punto ya cerrado se puede **corregir en
-   cualquier momento** desde el mismo listado (un selector por fila, sin
-   tener que borrar y re-marcar). La página muestra el marcador acumulado
-   (puntos ganados por cada pareja), la duración promedio del rally, y la
-   lista completa de puntos — cada uno clickeable para saltar el video a
-   ese instante. Esto sirve para poder filtrar después cualquier otra
-   analítica (posiciones, golpes, heatmaps) al rango de frames de un punto
-   específico, sin tener que cortar el video en clips separados. Se puede
-   usar en cualquier momento, no hace falta esperar a que termine el
-   procesamiento de YOLOv8.
+7. **Marcar puntos** (`/video/<id>/points`): apenas termina de procesar,
+   esta página ya viene con los puntos (rallies) **detectados
+   automáticamente** — `PointDetector` agrupa los golpes que están
+   pegados en el tiempo (menos de ~4s entre uno y el siguiente) en un
+   mismo punto, y separa dos puntos cuando hay un hueco más largo (el
+   tiempo muerto real entre rallies: ir a buscar la pelota, prepararse
+   para sacar). Lo único que no se puede inferir solo de la trayectoria
+   de la pelota es **quién ganó** cada punto, así que esos quedan
+   marcados como "pendiente de confirmar" (con un aviso destacado) hasta
+   que elegís la pareja ganadora en un desplegable — sin tener que
+   scrubear el video ni marcar el inicio/fin a mano. También podés seguir
+   marcando puntos manualmente (útil si el auto-detector se equivocó en
+   algún tramo, o para un video que todavía no procesaste) con "Marcar
+   inicio/fin de punto", y corregir el ganador de cualquier punto ya
+   cerrado en cualquier momento desde el mismo listado. La página muestra
+   el marcador acumulado, la duración promedio del rally, y la lista
+   completa de puntos — cada uno clickeable para saltar el video a ese
+   instante. Esto sirve para poder filtrar después cualquier otra
+   analítica (posiciones, golpes, heatmaps) al rango de frames de un
+   punto específico, sin tener que cortar el video en clips separados.
 7. **Estadísticas** (`/video/<id>/stats`): cruza automáticamente los puntos
    marcados con los golpes registrados. Por cada punto cerrado, toma el
    golpe con el frame más alto dentro de su rango como "el último que tocó
@@ -268,6 +280,23 @@ print(result.heatmap_paths)         # heatmaps PNG por pareja/jugador
 - **Highlights**: recorte con el binario de FFmpeg de `imageio-ffmpeg`
   (mismo que usa `video_transcode.py`), re-codificando en vez de copiar
   el stream, para que el corte sea preciso al segundo pedido.
+- **Detección automática de puntos**: `PointDetector` agrupa los golpes ya
+  detectados por gaps de tiempo (huecos cortos = mismo rally, hueco largo
+  = tiempo muerto entre puntos), no analiza la trayectoria de la pelota
+  de forma independiente. El ganador queda deliberadamente sin definir
+  (no se puede inferir con confianza si la pelota terminó afuera o en la
+  red sólo con su trayectoria 2D) — el usuario lo confirma desde
+  `/video/<id>/points`, donde los puntos pendientes de confirmación se
+  destacan.
+- **Correcciones que sobreviven a un reproceso**: `ShotLabelStore` y
+  `PointLabelStore` marcan cada golpe/punto con `auto_detected` (True
+  mientras nadie lo tocó). Editar cualquier campo desde la webapp lo
+  "promueve" a `auto_detected=False`; en el siguiente reproceso,
+  `set_auto_detected()` reemplaza sólo las propuestas automáticas viejas
+  y deja intacto todo lo que el usuario ya confirmó o corrigió. Lo mismo
+  aplica a nombres y parejas de jugador (`player_names.json` /
+  `player_teams.json`): los valores por defecto sólo completan huecos,
+  nunca pisan una corrección existente.
 
 ### Qué quedó afuera (y por qué)
 
